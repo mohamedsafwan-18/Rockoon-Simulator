@@ -1096,17 +1096,67 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT, s
           }
         }
 
-        const pitchRad = ((kernel.rocket.attitudeRpyDeg.pitch - 90) * Math.PI) / 180;
-        const rollRad = (kernel.rocket.attitudeRpyDeg.roll * Math.PI) / 180;
-        const yawRad = (kernel.rocket.attitudeRpyDeg.yaw * Math.PI) / 180;
+        // Exact 3D Orientation Alignment:
+        // Rocket local +Y is nose cone, -Y is engine nozzles & yellow plasma plume.
+        // While attached to balloon: aligned upright along local radial vertical vector.
+        // Upon ejection/ignition: blends seamlessly from balloon upright vector into the exact 3D world projectile trajectory tangent!
+        const upBalloonVec = new THREE.Vector3(
+          Math.sin(worldPos.theta),
+          Math.cos(worldPos.theta),
+          0
+        ).normalize();
 
-        if ((kernel.isBalloonBurst || (!isAttached && rocketStatus === 'RAIL_RELEASE')) && kernel.velocity.vy < -4.0) {
-          obj.rocketGroup.rotation.set(Math.PI, yawRad, 0);
-        } else if (rocketStatus === 'LEO_ORBIT' || !isAttached) {
-          // Align tangent to spherical Earth orbit as satellite revolves around the globe
-          obj.rocketGroup.rotation.set(0, 0, -worldPos.theta - Math.PI / 2 + pitchRad);
+        if (isAttached) {
+          const swayX = ((kernel.rocket.attitudeRpyDeg.pitch - 90) * Math.PI) / 180 * 0.25;
+          const swayZ = (kernel.rocket.attitudeRpyDeg.roll * Math.PI) / 180 * 0.25;
+          const attachedDir = new THREE.Vector3(
+            upBalloonVec.x + swayZ,
+            upBalloonVec.y,
+            upBalloonVec.z + swayX
+          ).normalize();
+          obj.rocketGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), attachedDir);
         } else {
-          obj.rocketGroup.rotation.set(pitchRad, yawRad, rollRad);
+          // Compute exact 3D visual trajectory tangent vector from current velocity in spherical world space
+          const dtLook = 0.5;
+          const vx = kernel.velocity.vx || 0;
+          const vy = kernel.velocity.vy || 0;
+          const vz = kernel.velocity.vz || 0;
+          const dOrb =
+            rocketStatus === 'LEO_ORBIT'
+              ? (vx * dtLook) / 260000.0
+              : rocketStatus === 'STAGE1_BURN' ||
+                rocketStatus === 'STAGE2_BURN' ||
+                rocketStatus === 'ORBIT_INSERTION_FAILURE'
+              ? (vx * dtLook) / 900000.0
+              : 0;
+
+          const nextWp = toSphericalWorldPos(
+            kernel.position.x + vx * dtLook,
+            Math.max(0, altitude + vy * dtLook),
+            kernel.position.z + vz * dtLook,
+            (kernel.orbitalAngleRad || 0) + dOrb,
+            true
+          );
+
+          const tangentVec = new THREE.Vector3(
+            nextWp.wx - worldPos.wx,
+            nextWp.wy - worldPos.wy,
+            nextWp.wz - worldPos.wz
+          );
+
+          if (tangentVec.lengthSq() > 1e-6) {
+            tangentVec.normalize();
+            // Smooth 1.2s transition from upright balloon launch alignment into projectile velocity tangent
+            const elapsedBurn = kernel.rocket.stage1BurnElapsed || 0;
+            const blend =
+              rocketStatus === 'STAGE1_BURN'
+                ? Math.min(1.0, elapsedBurn / 1.2)
+                : 1.0;
+            const finalDir = upBalloonVec.clone().lerp(tangentVec, blend).normalize();
+            obj.rocketGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), finalDir);
+          } else {
+            obj.rocketGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), upBalloonVec);
+          }
         }
       }
 
@@ -1151,9 +1201,13 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT, s
             });
           }
         } else {
-          // Realistic separation: balloon rebounds upward as rocket drops clear
-          const clearanceOffset = Math.min(450, (kernel.rocket.separationClearanceM || 0) * 0.45);
-          obj.balloonGroup.position.y += 0.22 + (clearanceOffset < 25 ? 0.15 : 0);
+          // Keep balloon anchored at the stratospheric release point (gently drifting) as rocket propels away
+          if (kernel.balloonReleasePos) {
+            const rel = kernel.balloonReleasePos;
+            const relWp = toSphericalWorldPos(rel.x, rel.y, rel.z, rel.orbitalAngleRad || 0, true);
+            const driftUp = Math.min(60, (kernel.rocket.separationClearanceM || 0) * 0.08);
+            obj.balloonGroup.position.set(relWp.wx - driftUp * 0.3, relWp.wy + 25.5 + driftUp, relWp.wz);
+          }
           if (obj.suspensionGroup) obj.suspensionGroup.visible = false;
         }
       }
@@ -1194,7 +1248,7 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT, s
         const positions = obj.plumePositions;
         const count = positions.length / 3;
         const rPos = obj.rocketGroup.position;
-        const rRot = obj.rocketGroup.rotation;
+        const rQuat = obj.rocketGroup.quaternion;
         const rScale = obj.rocketGroup.scale.x;
 
         if (isBurning) {
@@ -1212,7 +1266,7 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT, s
             const lz = spreadRad * Math.sin(spreadAngle);
 
             const vLocal = new THREE.Vector3(lx, ly, lz);
-            vLocal.applyEuler(rRot);
+            vLocal.applyQuaternion(rQuat);
 
             positions[idx] = rPos.x + vLocal.x;
             positions[idx + 1] = rPos.y + vLocal.y;

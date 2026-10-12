@@ -474,6 +474,77 @@ console.log('\n--- TEST SUITE 9: Auto-1x at 34 km, Presets, Failed LEO, Separati
   assert(typeof lastRec.orbital_and_aerothermal_physics.membrane_hoop_stress_mpa === 'number', 'Exported JSON has membrane_hoop_stress_mpa');
 }
 
+// -------------------------------------------------------------
+// TEST SUITE 10: IMMEDIATE PROJECTILE MOTION FROM BALLOON, PAUSE/RESUME IN JSON & 0.5S TCP SOCKET PAYLOAD
+// -------------------------------------------------------------
+console.log('\n--- TEST SUITE 10: Projectile Motion Alignment, Pause/Resume in JSON & 0.5s TCP Socket ---');
+{
+  // 10A: Rocket propels immediately upward and forward from balloon initial stage without dropping downward
+  const kProj = new SimulationKernel();
+  kProj.startMission();
+  kProj.position.y = 38000;
+  kProj.velocity.vy = 2.0;
+  kProj.triggerIgnition();
+
+  const yAtSeparation = kProj.position.y;
+  kProj.integrate(0.5); // 0.5 seconds after separation
+  assert(
+    kProj.position.y > yAtSeparation && kProj.velocity.vy > 10,
+    `Rocket immediately propels upward from balloon (no downward drop): y=${kProj.position.y.toFixed(1)}m, vy=${kProj.velocity.vy.toFixed(1)}m/s`
+  );
+  assert(
+    kProj.rocket.attitudeRpyDeg.pitch >= 80 && kProj.rocket.attitudeRpyDeg.pitch <= 90,
+    `Rocket starts properly aligned with balloon initial stage: pitch=${kProj.rocket.attitudeRpyDeg.pitch.toFixed(1)} deg`
+  );
+  assert(
+    kProj.balloonReleasePos && kProj.balloonReleasePos.y === 38000,
+    'balloonReleasePos is recorded at exact separation coordinates so rocket propels away from balloon'
+  );
+
+  // 10B: Pause and Resume state tracked in live JSON, exported JSON, and 0.5s TCP Socket JSON
+  const kPause = new SimulationKernel();
+  kPause.startMission();
+  kPause.integrate(1.0);
+  assert(kPause.missionStatus === 'RUNNING' && kPause.isPaused === false, 'Mission starts in RUNNING state');
+
+  kPause.pauseMission();
+  const pausedReading = kPause.generateSensorReadings();
+  assert(pausedReading.simulation_state.status === 'PAUSED', 'Paused reading has simulation_state.status === PAUSED');
+  assert(pausedReading.simulation_state.is_paused === true, 'Paused reading has simulation_state.is_paused === true');
+  assert(pausedReading.simulation_state.pause_count === 1, 'Paused reading increments pause_count to 1');
+  assert(pausedReading.simulation_state.last_action === 'PAUSED', 'Paused reading notes PAUSED');
+
+  kPause.resumeMission();
+  const resumedReading = kPause.generateSensorReadings();
+  assert(resumedReading.simulation_state.status === 'RESUMED', 'Resumed reading has simulation_state.status === RESUMED');
+  assert(resumedReading.simulation_state.is_resumed === true, 'Resumed reading has simulation_state.is_resumed === true');
+  assert(resumedReading.simulation_state.is_paused === false, 'Resumed reading has simulation_state.is_paused === false');
+  assert(resumedReading.simulation_state.resume_count === 1, 'Resumed reading increments resume_count to 1');
+  assert(resumedReading.simulation_state.last_action === 'RESUMED', 'Resumed reading notes RESUMED');
+  assert(resumedReading.simulation_state.pause_resume_events.length >= 3, 'pause_resume_events history logged in JSON');
+
+  const exportWithPause = kPause.getExportJson();
+  assert(
+    exportWithPause.mission_metadata.simulation_state &&
+      exportWithPause.mission_metadata.simulation_state.pause_count === 1 &&
+      exportWithPause.mission_metadata.simulation_state.resume_count === 1,
+    'Exported JSON mission_metadata includes pause/resume counts and events'
+  );
+
+  // 10C: 0.5s TCP Socket Payload Schema (172.16.59.95:65432)
+  const sockPayload = kPause.getSocketPayload();
+  assert(sockPayload.event === 'device_handshake', 'Socket payload has event: device_handshake');
+  assert(sockPayload.device_id === 'client_node_01', 'Socket payload has device_id: client_node_01');
+  assert(sockPayload.server_target.server_ip === '172.16.59.95', 'Socket payload targets 172.16.59.95');
+  assert(sockPayload.server_target.port === 65432, 'Socket payload targets port 65432');
+  assert(sockPayload.server_target.ping_interval_seconds === 0.5, 'Socket payload specifies 0.5s ping interval');
+  assert(
+    sockPayload.payload.simulation_state.is_resumed === true &&
+      sockPayload.payload.simulation_state.pause_count === 1,
+    'Socket payload includes simulation_state with pause and resume details'
+  );
+}
+
 console.log('\n================================================================');
 console.log(`🎉 ALL ${passedTests}/${totalTests} TESTS PASSED SUCCESSFULLY!`);
 console.log('================================================================');

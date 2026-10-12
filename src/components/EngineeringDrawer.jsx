@@ -20,15 +20,38 @@ export function EngineeringDrawer({
   onSelectTab,
   onExportJson,
   onUpdate,
+  tcpStatus,
 }) {
   const [internalActiveTab, setInternalActiveTab] = useState(DRAWER_TABS.INSTRUMENTS);
   const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab;
   const setActiveTab = onSelectTab || setInternalActiveTab;
   const [copied, setCopied] = useState(false);
 
-  // Formatted JSON frame with 3D GNSS Launch-Pad-Origin coordinates & advanced physics
+  // Formatted JSON frame with Pause/Resume state, 0.5s TCP Socket header info, 3D GNSS Launch-Pad-Origin coordinates & advanced physics
   const currentPacket = {
+    event: 'device_handshake',
+    device_id: 'client_node_01',
     timestamp_ms: telemetry?.timestamp_ms || 0,
+    simulation_state: telemetry?.simulation_state || {
+      status: kernel.missionStatus || 'PRELAUNCH',
+      is_running: kernel.isRunning,
+      is_paused: kernel.isPaused,
+      is_resumed: kernel.isResumed,
+      has_launched: kernel.hasLaunched,
+      pause_count: kernel.pauseCount || 0,
+      resume_count: kernel.resumeCount || 0,
+      last_action: kernel.lastControlAction || 'INITIALIZED',
+      pause_resume_events: kernel.pauseResumeEvents || [],
+    },
+    tcp_socket_stream: {
+      server_ip: '172.16.59.95',
+      port: 65432,
+      ping_interval_seconds: 0.5,
+      protocol: '4-byte Big-Endian uint32 (!I) length header + UTF-8 JSON',
+      packets_dispatched: tcpStatus?.totalPingsSent || 0,
+      socket_status: tcpStatus?.status || 'PINGING_0.5S',
+      last_server_ack: tcpStatus?.lastAck || null,
+    },
     flight_phase: telemetry?.flight_phase || 'PRELAUNCH',
     staging_sub_phase: telemetry?.staging_sub_phase || 'ATTACHED_TO_GONDOLA',
     gnss_coordinates: telemetry?.gnss_coordinates || {
@@ -192,6 +215,39 @@ export function EngineeringDrawer({
             {/* TAB 4: LIVE JSON DOWNLINK INSPECTOR */}
             {activeTab === DRAWER_TABS.JSON && (
               <div className="space-y-3 text-xs font-mono">
+                {/* 0.5s TCP Socket Stream Status Card (172.16.59.95:65432) */}
+                <div className="bg-slate-900/95 p-2.5 rounded-lg border border-sky-500/40 space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-sky-300 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                      TCP SOCKET STREAM: 172.16.59.95:65432
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 text-[10px] font-bold">
+                      EVERY 0.5s (!I 4-BYTE HEADER)
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-slate-300">
+                    <span>
+                      Pings Sent: <strong className="text-emerald-300">{tcpStatus?.totalPingsSent || 0}</strong>
+                    </span>
+                    <span>
+                      Sim State:{' '}
+                      <strong
+                        className={
+                          kernel.isPaused
+                            ? 'text-amber-300'
+                            : kernel.isResumed
+                            ? 'text-emerald-300'
+                            : 'text-sky-300'
+                        }
+                      >
+                        {kernel.missionStatus}
+                      </strong>{' '}
+                      (P:{kernel.pauseCount}/R:{kernel.resumeCount})
+                    </span>
+                  </div>
+                </div>
+
                 <div className="flex items-center justify-between bg-slate-900 p-2.5 rounded-lg border border-slate-800">
                   <div className="text-slate-300 text-[11px]">
                     Downlink: <strong className="text-sky-300">{kernel.sampleRateHz} Hz</strong> | Buffered:{' '}
@@ -218,7 +274,7 @@ export function EngineeringDrawer({
                 </div>
 
                 <div className="flex justify-between items-center text-[11px] text-slate-400">
-                  <span>DOWNLINK PACKET FRAME:</span>
+                  <span>DOWNLINK PACKET FRAME (0.5s TCP PAYLOAD):</span>
                   <button
                     onClick={handleCopy}
                     className="text-sky-400 hover:text-sky-300 flex items-center space-x-1 transition-colors"

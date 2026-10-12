@@ -1,15 +1,15 @@
 import React from 'react';
-import { Rocket, BookOpen, Download, Activity, Radio, Cpu, Compass, Sliders, TrendingUp, FileJson } from 'lucide-react';
+import { Rocket, Download, Activity, Radio, Cpu, Compass, Sliders, TrendingUp, FileJson, Wifi } from 'lucide-react';
 import { DRAWER_TABS } from './EngineeringDrawer.jsx';
 
 export function VirtualLabsHeader({
   telemetry,
-  onOpenTheory,
   onExportJson,
   onOpenDrawerTab,
   activeDrawerTab,
   isDrawerOpen,
   activeFaultCount = 0,
+  tcpStatus,
 }) {
   const formatMet = (ms) => {
     const totalSec = Math.floor(ms / 1000);
@@ -20,6 +20,7 @@ export function VirtualLabsHeader({
   };
 
   const phase = telemetry?.flight_phase || 'PRELAUNCH';
+  const simStatus = telemetry?.simulation_state?.status || 'PRELAUNCH';
   const baroStatus = telemetry?.barometric_sensor?.status || 'NOMINAL';
   const imuStatus = telemetry?.imu_sensor?.status || 'NOMINAL';
   const gpsStatus = telemetry?.navigation_state?.status || 'NOMINAL';
@@ -67,6 +68,18 @@ export function VirtualLabsHeader({
           {phase}
         </div>
 
+        {/* Simulation Pause / Resume Status Pill */}
+        {simStatus === 'PAUSED' && (
+          <div className="px-2 py-0.5 rounded-full bg-amber-500/30 border border-amber-400 text-amber-300 text-[10px] font-mono font-bold animate-pulse">
+            ⏸ PAUSED
+          </div>
+        )}
+        {simStatus === 'RESUMED' && (
+          <div className="px-2 py-0.5 rounded-full bg-emerald-500/25 border border-emerald-400/60 text-emerald-300 text-[10px] font-mono font-bold">
+            ▶ RESUMED
+          </div>
+        )}
+
         {/* Airspace Safezone Warning Flag */}
         {isSafezoneViolated && (
           <div className="hidden sm:flex items-center px-2 py-0.5 rounded-full bg-rose-600/30 border border-rose-500 text-rose-300 text-[10px] font-mono font-bold animate-pulse">
@@ -109,10 +122,23 @@ export function VirtualLabsHeader({
             <Radio className="w-3 h-3" />
             <span>RF LINK</span>
           </div>
+          {/* Live 0.5s TCP Socket Stream Indicator (172.16.59.95:65432) */}
+          <div
+            onClick={() => onOpenDrawerTab(DRAWER_TABS.JSON)}
+            className={`cursor-pointer flex items-center space-x-1 px-2 py-0.5 rounded border transition-all ${
+              tcpStatus?.status === 'CONNECTED_ACK' || tcpStatus?.status === 'CONNECTED_SENT'
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
+                : 'bg-sky-500/20 text-sky-300 border-sky-500/50'
+            }`}
+            title={`0.5s TCP Socket Stream -> 172.16.59.95:65432 | Packets: ${tcpStatus?.totalPingsSent || 0} | Status: ${tcpStatus?.status || 'PINGING_0.5S'}`}
+          >
+            <Wifi className="w-3 h-3 animate-pulse" />
+            <span>172.16.59.95:65432 (0.5s)</span>
+          </div>
         </div>
       </div>
 
-      {/* Right: Drawer Tab Switchers & Lab Manual */}
+      {/* Right: Drawer Tab Switchers & Export */}
       <div className="flex items-center space-x-1.5">
         {/* Quick Drawer Tabs */}
         <div className="hidden sm:flex items-center bg-slate-950/80 rounded-lg p-0.5 border border-slate-800 text-xs font-mono">
@@ -165,7 +191,7 @@ export function VirtualLabsHeader({
                 ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
-            title="Inspect Live Telemetry JSON Stream"
+            title="Inspect Live Telemetry JSON Stream & 0.5s TCP Socket Pinger"
           >
             <FileJson className="w-3.5 h-3.5" />
             <span className="hidden lg:inline">JSON</span>
@@ -180,16 +206,6 @@ export function VirtualLabsHeader({
         >
           <Download className="w-3.5 h-3.5" />
           <span className="hidden md:inline">Export</span>
-        </button>
-
-        {/* Theory & Lab Manual Modal Trigger */}
-        <button
-          onClick={onOpenTheory}
-          className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-sky-600 hover:bg-sky-500 text-white flex items-center space-x-1.5 transition-all shadow-sm active:scale-95"
-          title="Open Lab Manual & Physical Derivations"
-        >
-          <BookOpen className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">Theory</span>
         </button>
       </div>
     </header>

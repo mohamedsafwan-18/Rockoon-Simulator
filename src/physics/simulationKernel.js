@@ -32,8 +32,9 @@ export const FLIGHT_PHASES = {
 export const MISSION_PRESETS = {
   NOMINAL_LEO: {
     id: 'NOMINAL_LEO',
-    label: '✅ Nominal LEO Trajectory',
-    description: 'Standard ISA climb inside 35km safezone -> 34km 1x throttle -> Stage 1 & 2 insertion into 212.8 km circular LEO.',
+    label: '✅ Nominal LEO Orbit Trajectory',
+    description: 'Balloon ascends inside 35km safezone -> 34km 1x speed -> Aligned rocket propulsion & projectile gravity-turn into 212.8 km circular LEO.',
+     badgeColor: 'emerald',
     env: {
       windSpeedKmh: 20.0,
       windDirectionDeg: 180.0,
@@ -54,6 +55,7 @@ export const MISSION_PRESETS = {
     id: 'OUT_OF_SAFEZONE',
     label: '🚫 Out of Safezone (Illegal Launch)',
     description: '85 km/h crosswinds + 12 m/s/km shear push balloon beyond 35 km maritime corridor, triggering Illegal Launch Interlock.',
+    badgeColor: 'amber',
     env: {
       windSpeedKmh: 85.0,
       windDirectionDeg: 135.0,
@@ -72,8 +74,9 @@ export const MISSION_PRESETS = {
   },
   FAILED_LEO_INSERTION: {
     id: 'FAILED_LEO_INSERTION',
-    label: '⚠️ Failed LEO Orbit (Stage 2 Underburn)',
-    description: 'Balloon reaches stratosphere & Stage 1 burns nominally, but Stage 2 suffers turbopump cavitation and decays suborbitally.',
+    label: '⚠️ Failed LEO (Projectile Suborbital Arc)',
+    description: 'Rocket propels aligned from balloon into projectile arc, but Stage 2 underburns (32% thrust) and follows ballistic projectile motion back down.',
+    badgeColor: 'orange',
     env: {
       windSpeedKmh: 18.0,
       windDirectionDeg: 180.0,
@@ -92,8 +95,9 @@ export const MISSION_PRESETS = {
   },
   BALLOON_BURST_FAILURE: {
     id: 'BALLOON_BURST_FAILURE',
-    label: '💥 Envelope Burst Failure (Mid-Ascent)',
-    description: 'Severe jet stream turbulence (105 km/h) + low pressure scale (0.84x) ruptures balloon; rocket plunges in free fall.',
+    label: '💥 Envelope Burst (Projectile Drop)',
+    description: 'Severe jet stream turbulence (105 km/h) + low pressure scale (0.84x) ruptures balloon; rocket follows ballistic projectile descent.',
+    badgeColor: 'rose',
     env: {
       windSpeedKmh: 105.0,
       windDirectionDeg: 210.0,
@@ -114,6 +118,7 @@ export const MISSION_PRESETS = {
     id: 'SOLAR_SUPERHEAT_BURST',
     label: '☀️ Solar Thermal Superheat Burst',
     description: 'Extreme solar radiation (1380 W/m²) superheats helium gas above 18 km beyond membrane tensile yield.',
+    badgeColor: 'rose',
     env: {
       windSpeedKmh: 22.0,
       windDirectionDeg: 180.0,
@@ -134,6 +139,7 @@ export const MISSION_PRESETS = {
     id: 'SENSOR_BLACKOUT',
     label: '📡 Avionics Multi-Sensor Fault Storm',
     description: 'Injects Barometer Sticking, IMU Gyro Bias Spike, Pitot Icing, GPS Dropout, and RF Telemetry Loss.',
+    badgeColor: 'purple',
     env: {
       windSpeedKmh: 35.0,
       windDirectionDeg: 195.0,
@@ -199,6 +205,7 @@ export class SimulationKernel {
 
     // Balloon flight train state
     this.isTetherAttached = true;
+    this.balloonReleasePos = null; // Stores 3D coordinate where balloon released the rocket
     this.isBalloonBurst = false;
     this.balloonBurstReason = null;
     this.safetyAltitudeM = 36000.0; // 36 km minimum safety altitude for SBRL release
@@ -227,9 +234,18 @@ export class SimulationKernel {
     this.trajectoryPoints = [];
     this.lastTrajectoryRecordTimeMs = 0;
 
-    // Explicit Mission Lifecycle Control
+    // Explicit Mission Lifecycle & Pause/Resume Tracking
     this.hasLaunched = false;
     this.isRunning = false;
+    this.isPaused = false;
+    this.isResumed = false;
+    this.missionStatus = 'PRELAUNCH'; // 'PRELAUNCH' | 'RUNNING' | 'PAUSED' | 'RESUMED'
+    this.pauseCount = 0;
+    this.resumeCount = 0;
+    this.lastControlAction = 'INITIALIZED';
+    this.lastPauseTimeMs = null;
+    this.lastResumeTimeMs = null;
+    this.pauseResumeEvents = [];
     this.timeWarp = 1.0;
   }
 
@@ -254,17 +270,47 @@ export class SimulationKernel {
   startMission() {
     this.hasLaunched = true;
     this.isRunning = true;
+    this.isPaused = false;
+    this.isResumed = false;
+    this.missionStatus = 'RUNNING';
+    this.lastControlAction = 'STARTED';
+    this.pauseResumeEvents.push({
+      action: 'STARTED',
+      mission_time_ms: Math.round(this.timeMs),
+      iso_time: new Date().toISOString(),
+    });
     return true;
   }
 
   pauseMission() {
     this.isRunning = false;
+    this.isPaused = true;
+    this.missionStatus = 'PAUSED';
+    this.pauseCount += 1;
+    this.lastControlAction = 'PAUSED';
+    this.lastPauseTimeMs = Math.round(this.timeMs);
+    this.pauseResumeEvents.push({
+      action: 'PAUSED',
+      mission_time_ms: Math.round(this.timeMs),
+      iso_time: new Date().toISOString(),
+    });
     return false;
   }
 
   resumeMission() {
     if (this.hasLaunched) {
       this.isRunning = true;
+      this.isPaused = false;
+      this.isResumed = true;
+      this.missionStatus = 'RESUMED';
+      this.resumeCount += 1;
+      this.lastControlAction = 'RESUMED';
+      this.lastResumeTimeMs = Math.round(this.timeMs);
+      this.pauseResumeEvents.push({
+        action: 'RESUMED',
+        mission_time_ms: Math.round(this.timeMs),
+        iso_time: new Date().toISOString(),
+      });
     } else {
       this.startMission();
     }
@@ -275,8 +321,10 @@ export class SimulationKernel {
     if (!this.hasLaunched) {
       return this.startMission();
     }
-    this.isRunning = !this.isRunning;
-    return this.isRunning;
+    if (this.isRunning) {
+      return this.pauseMission();
+    }
+    return this.resumeMission();
   }
 
   setTimeWarp(warp) {
@@ -314,6 +362,7 @@ export class SimulationKernel {
     this.acceleration = { ax: 0.0, ay: 0.0, az: 0.0 };
     this.orbitalAngleRad = 0.0;
     this.isTetherAttached = true;
+    this.balloonReleasePos = null;
     this.isBalloonBurst = false;
     this.balloonBurstReason = null;
     this.hasAutoSlowedAt34km = false;
@@ -330,6 +379,15 @@ export class SimulationKernel {
     this.lastTrajectoryRecordTimeMs = 0;
     this.hasLaunched = false;
     this.isRunning = false;
+    this.isPaused = false;
+    this.isResumed = false;
+    this.missionStatus = 'PRELAUNCH';
+    this.pauseCount = 0;
+    this.resumeCount = 0;
+    this.lastControlAction = 'RESTARTED';
+    this.lastPauseTimeMs = null;
+    this.lastResumeTimeMs = null;
+    this.pauseResumeEvents = [];
   }
 
   /**
@@ -460,8 +518,15 @@ export class SimulationKernel {
   triggerCutDown() {
     if (!this.isTetherAttached) return false;
     this.isTetherAttached = false;
+    this.balloonReleasePos = {
+      x: this.position.x,
+      y: this.position.y,
+      z: this.position.z,
+      orbitalAngleRad: this.orbitalAngleRad,
+    };
     this.balloon.isCutDown = true;
     this.rocket.status = ROCKET_STATUS.RAIL_RELEASE;
+    this.rocket.attitudeRpyDeg = { roll: 0.0, pitch: 88.0, yaw: 0.0 };
     return true;
   }
 
@@ -474,7 +539,7 @@ export class SimulationKernel {
   }
 
   /**
-   * Manual Rocket Ignition Trigger (with Range Safety Corridor interlock & Drop-Clear Ullage Sequence)
+   * Manual Rocket Ignition Trigger (Propels properly aligned from initial balloon launch stage into projectile motion)
    */
   triggerIgnition() {
     const isAboveSafety = this.position.y >= this.safetyAltitudeM || this.safetyOverride;
@@ -497,12 +562,17 @@ export class SimulationKernel {
       this.triggerCutDown();
     }
 
+    // Lock rocket alignment to the balloon's upright launch frame and propel immediately into projectile arc
+    this.rocket.attitudeRpyDeg = { roll: 0.0, pitch: 88.0, yaw: 0.0 };
+    this.rocket.targetPitchDeg = 88.0;
+    this.velocity.vy = Math.max(this.velocity.vy, 6.0);
+    this.velocity.vx = Math.max(this.velocity.vx, 8.0);
     this.rocket.status = ROCKET_STATUS.STAGE1_BURN;
     this.rocket.stagingSubPhase = 'PYRO_DROP_CLEAR';
     return {
       success: true,
       reason: this.isInsideSafezone
-        ? 'PYRO SEPARATION & RCS ULLAGE INITIATED -> SBRL Stage 1 Vacuum Ignition Sequence Active!'
+        ? 'BALLOON SEPARATION & STAGE 1 IGNITION -> Propelling along Projectile Gravity-Turn Trajectory!'
         : 'SBRL Stage 1 Ignited (WARNING: ILLEGAL LAUNCH OUTSIDE APPROVED SAFEZONE).',
     };
   }
@@ -808,9 +878,23 @@ export class SimulationKernel {
     const { thrustN } = this.rocket.computeThrust(atmo.P_pa);
     const aero = this.rocket.computeAero(this.position.y, this.velocity, atmo);
 
+    const simulationState = {
+      status: this.missionStatus, // 'PRELAUNCH' | 'RUNNING' | 'PAUSED' | 'RESUMED'
+      is_running: this.isRunning,
+      is_paused: this.isPaused,
+      is_resumed: this.isResumed,
+      last_action: this.lastControlAction,
+      pause_count: this.pauseCount,
+      resume_count: this.resumeCount,
+      last_pause_timestamp_ms: this.lastPauseTimeMs,
+      last_resume_timestamp_ms: this.lastResumeTimeMs,
+      pause_resume_events: this.pauseResumeEvents,
+    };
+
     return {
       timestamp_ms: Math.round(this.timeMs),
       flight_phase: this.getFlightPhase(),
+      simulation_state: simulationState,
       isPacketDropped,
       gnss_coordinates: {
         origin_reference: 'LAUNCH_PAD_ORIGIN [0, 0, 0]',
@@ -914,6 +998,58 @@ export class SimulationKernel {
   }
 
   /**
+   * Build the JSON packet streamed every 0.5 seconds to 172.16.59.95:65432
+   * Includes both the device_handshake/payload structure and full SBRL telemetry + pause/resume state.
+   */
+  getSocketPayload() {
+    const reading = this.generateSensorReadings();
+    const statusLabel = this.isPaused
+      ? 'paused'
+      : this.isResumed
+      ? 'resumed'
+      : this.isRunning
+      ? 'active'
+      : 'prelaunch';
+
+    return {
+      event: 'device_handshake',
+      device_id: 'client_node_01',
+      server_target: {
+        server_ip: '172.16.59.95',
+        port: 65432,
+        ping_interval_seconds: 0.5,
+      },
+      status: statusLabel,
+      is_paused: this.isPaused,
+      is_resumed: this.isResumed,
+      simulation_state: reading.simulation_state,
+      payload: {
+        temperature: reading.environmental_sensors.ambient_temp_c,
+        status: statusLabel,
+        is_paused: this.isPaused,
+        is_resumed: this.isResumed,
+        simulation_state: reading.simulation_state,
+        timestamp_ms: reading.timestamp_ms,
+        flight_phase: reading.flight_phase,
+        gnss_coordinates: reading.gnss_coordinates,
+        barometric_sensor: reading.barometric_sensor,
+        imu_sensor: reading.imu_sensor,
+        environmental_sensors: reading.environmental_sensors,
+        payload_state: reading.payload_state,
+        orbital_and_aerothermal_physics: reading.orbital_and_aerothermal_physics,
+      },
+      timestamp_ms: reading.timestamp_ms,
+      flight_phase: reading.flight_phase,
+      gnss_coordinates: reading.gnss_coordinates,
+      barometric_sensor: reading.barometric_sensor,
+      imu_sensor: reading.imu_sensor,
+      environmental_sensors: reading.environmental_sensors,
+      payload_state: reading.payload_state,
+      orbital_and_aerothermal_physics: reading.orbital_and_aerothermal_physics,
+    };
+  }
+
+  /**
    * Record telemetry record to buffer
    */
   recordTelemetryRecord() {
@@ -927,12 +1063,13 @@ export class SimulationKernel {
   }
 
   /**
-   * Export telemetry to conformant JSON schema including 3D Launch-Pad-Origin GNSS Coordinates & Physics
+   * Export telemetry to conformant JSON schema including 3D Launch-Pad-Origin GNSS Coordinates, Pause/Resume State & Physics
    */
   getExportJson() {
     const records = this.telemetryBuffer.map((rec) => ({
       timestamp_ms: rec.timestamp_ms,
       flight_phase: rec.flight_phase,
+      simulation_state: rec.simulation_state,
       gnss_coordinates: rec.gnss_coordinates,
       barometric_sensor: {
         pressure_hpa: rec.barometric_sensor.pressure_hpa,
@@ -969,6 +1106,18 @@ export class SimulationKernel {
         active_preset: this.activePresetId,
         sample_rate_hz: this.sampleRateHz,
         total_samples: records.length,
+        simulation_state: {
+          status: this.missionStatus,
+          is_running: this.isRunning,
+          is_paused: this.isPaused,
+          is_resumed: this.isResumed,
+          last_action: this.lastControlAction,
+          pause_count: this.pauseCount,
+          resume_count: this.resumeCount,
+          last_pause_timestamp_ms: this.lastPauseTimeMs,
+          last_resume_timestamp_ms: this.lastResumeTimeMs,
+          pause_resume_events: this.pauseResumeEvents,
+        },
         environment_presets: {
           base_wind_speed_kmh: this.env.windSpeedKmh,
           wind_direction_deg: this.env.windDirectionDeg,

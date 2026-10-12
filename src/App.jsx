@@ -5,16 +5,21 @@ import { CAMERA_MODES } from './graphics/cameraModes.js';
 import { VirtualLabsHeader } from './components/VirtualLabsHeader.jsx';
 import { EngineeringDrawer, DRAWER_TABS } from './components/EngineeringDrawer.jsx';
 import { FlightControlBar } from './components/FlightControlBar.jsx';
-import { TheoryDrawer } from './components/TheoryDrawer.jsx';
-import { Compass, Wind, Thermometer, Gauge, ChevronRight } from 'lucide-react';
+import { Compass, ChevronRight } from 'lucide-react';
 
 export function App() {
   const [kernel] = useState(() => new SimulationKernel());
   const [telemetry, setTelemetry] = useState(() => kernel.generateSensorReadings());
   const [cameraMode, setCameraMode] = useState(CAMERA_MODES.TRACKING_ORBIT);
-  const [isTheoryOpen, setIsTheoryOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeDrawerTab, setActiveDrawerTab] = useState(DRAWER_TABS.INSTRUMENTS);
+  const [tcpStatus, setTcpStatus] = useState({
+    serverIp: '172.16.59.95',
+    port: 65432,
+    intervalMs: 500,
+    totalPingsSent: 0,
+    status: 'PINGING_0.5S',
+  });
   const [, setForceTick] = useState(0);
 
   const forceUpdate = useCallback(() => {
@@ -53,6 +58,46 @@ export function App() {
     return () => cancelAnimationFrame(animId);
   }, [kernel]);
 
+  // Uninterrupted 0.5-second (500 ms) TCP Socket JSON Pinger to 172.16.59.95:65432
+  useEffect(() => {
+    let isMounted = true;
+
+    const pingSocketServer = async () => {
+      const socketPacket = kernel.getSocketPayload();
+      try {
+        const res = await fetch('/api/tcp-ping', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(socketPacket),
+        });
+        if (res.ok && isMounted) {
+          const data = await res.json();
+          if (data?.tcpStats) {
+            setTcpStatus(data.tcpStats);
+          }
+        }
+      } catch {
+        // Keep local ping counter incrementing if running from static build without Vite middleware
+        if (isMounted) {
+          setTcpStatus(prev => ({
+            ...prev,
+            totalPingsSent: (prev.totalPingsSent || 0) + 1,
+            lastPingIso: new Date().toISOString(),
+            status: 'PINGING_0.5S',
+          }));
+        }
+      }
+    };
+
+    // Fire immediately and then every 500 ms (0.5 seconds) without interruption
+    pingSocketServer();
+    const intervalId = setInterval(pingSocketServer, 500);
+    return () => {
+      isMounted = false;
+      clearInterval(intervalId);
+    };
+  }, [kernel]);
+
   const handleReset = () => {
     kernel.reset();
     setTelemetry(kernel.generateSensorReadings());
@@ -89,12 +134,12 @@ export function App() {
       {/* 1. TOP HEADER NAVIGATION BAR */}
       <VirtualLabsHeader
         telemetry={telemetry}
-        onOpenTheory={() => setIsTheoryOpen(true)}
         onExportJson={handleExportJson}
         onOpenDrawerTab={handleOpenDrawerTab}
         activeDrawerTab={activeDrawerTab}
         isDrawerOpen={isDrawerOpen}
         activeFaultCount={activeFaultCount}
+        tcpStatus={tcpStatus}
       />
 
       {/* 2. FULLSCREEN 3D SIMULATOR VIEWPORT */}
@@ -235,6 +280,7 @@ export function App() {
           onSelectTab={setActiveDrawerTab}
           onExportJson={handleExportJson}
           onUpdate={forceUpdate}
+          tcpStatus={tcpStatus}
         />
 
         {/* 5. FLOATING BOTTOM MISSION CONTROL DECK */}
@@ -248,12 +294,6 @@ export function App() {
           />
         </div>
       </div>
-
-      {/* 6. THEORY & LAB MANUAL MODAL DRAWER */}
-      <TheoryDrawer
-        isOpen={isTheoryOpen}
-        onClose={() => setIsTheoryOpen(false)}
-      />
     </div>
   );
 }

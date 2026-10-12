@@ -29,7 +29,7 @@ export class SbrlPyramidalRocket {
     // Stage 1 (Faceted Pyramidal Booster Core)
     this.stage1DryMassKg = config.stage1DryMassKg || 240.0;
     this.stage1PropellantKg = config.stage1PropellantKg || 1480.0;
-    this.stage1ThrustVacN = config.stage1ThrustVacN || 127200.0; // Sized for 40.5s main burn after 1.5s drop-clear/ullage
+    this.stage1ThrustVacN = config.stage1ThrustVacN || 123000.0;
     this.stage1IspVacS = config.stage1IspVacS || 355.0;
     this.stage1BurnDurationS = 42.0;
 
@@ -45,10 +45,10 @@ export class SbrlPyramidalRocket {
 
     // Current Flight State
     this.status = ROCKET_STATUS.SLUNG;
-    this.stagingSubPhase = 'ATTACHED'; // 'ATTACHED' | 'PYRO_DROP_CLEAR' | 'RCS_ULLAGE_SETTLING' | 'MAIN_ENGINE_IGNITION' | 'STAGE2_VACUUM_BURN'
-    this.separationClearanceM = 0.0;   // Distance dropped below balloon gondola during separation
+    this.stagingSubPhase = 'ATTACHED';
+    this.separationClearanceM = 0.0;
     this.isRcsFiring = false;
-    this.stage2FailureMode = false;    // Preset flag: simulates Stage 2 underburn / failed LEO insertion
+    this.stage2FailureMode = false; // Preset flag: simulates Stage 2 underburn / suborbital projectile arc
 
     this.currentStage1Propellant = this.stage1PropellantKg;
     this.currentStage2Propellant = this.stage2PropellantKg;
@@ -61,8 +61,8 @@ export class SbrlPyramidalRocket {
     this.periapsisKm = 0;
 
     // Advanced Physics & Keplerian Orbital State
-    this.specificOrbitalEnergyMJkg = -62.56; // v^2/2 - mu/r (MJ/kg)
-    this.specificAngularMomentumM2s = 0.0;   // r * v_horiz (m^2/s)
+    this.specificOrbitalEnergyMJkg = -62.56;
+    this.specificAngularMomentumM2s = 0.0;
     this.eccentricity = 1.0;
     this.semiMajorAxisKm = 0.0;
     this.remainingDeltaVMps = this.computeRemainingDeltaV();
@@ -118,7 +118,8 @@ export class SbrlPyramidalRocket {
   }
 
   /**
-   * Compute thrust and mass flow rate based on current stage and separation sub-phase
+   * Compute thrust and mass flow rate based on current stage.
+   * Propels immediately from the balloon launch state without dropping downward.
    */
   computeThrust(ambientPressurePa) {
     if (this.status === ROCKET_STATUS.STAGE1_BURN) {
@@ -127,29 +128,23 @@ export class SbrlPyramidalRocket {
         return { thrustN: 0, mdotKgPerS: 0, currentStage: 1 };
       }
 
-      // Realistic Balloon-to-Rocket Transition:
-      // 0.0s - 0.8s: Pyrotechnic drop-clear (cold gas push + gravity clearance)
-      // 0.8s - 1.5s: Cold-gas RCS ullage settling burn (4.2 kN settling thrust)
-      // >= 1.5s: Full Stage 1 4-nozzle yellow plasma main engine ignition
-      if (this.stage1BurnElapsed < 0.8) {
-        this.stagingSubPhase = 'PYRO_DROP_CLEAR';
-        this.isRcsFiring = true;
-        this.thrustN = 850.0;
-        return { thrustN: 850.0, mdotKgPerS: 0.0, currentStage: 1 };
-      }
-      if (this.stage1BurnElapsed < 1.5) {
-        this.stagingSubPhase = 'RCS_ULLAGE_SETTLING';
-        this.isRcsFiring = true;
-        this.thrustN = 5200.0;
-        return { thrustN: 5200.0, mdotKgPerS: 0.0, currentStage: 1 };
-      }
-
-      this.stagingSubPhase = 'MAIN_ENGINE_IGNITION';
-      this.isRcsFiring = false;
       const pRatio = Math.max(0, 1 - (ambientPressurePa / CONSTANTS.P0_std) * 0.05);
       const thrustN = this.stage1ThrustVacN * pRatio;
       const mdotKgPerS = this.stage1ThrustVacN / (this.stage1IspVacS * CONSTANTS.g0);
       this.thrustN = thrustN;
+
+      // Track sub-phases while propelling cleanly from the balloon cradle
+      if (this.stage1BurnElapsed < 0.8) {
+        this.stagingSubPhase = 'PYRO_DROP_CLEAR';
+        this.isRcsFiring = true;
+      } else if (this.stage1BurnElapsed < 1.5) {
+        this.stagingSubPhase = 'RCS_ULLAGE_SETTLING';
+        this.isRcsFiring = true;
+      } else {
+        this.stagingSubPhase = 'MAIN_ENGINE_IGNITION';
+        this.isRcsFiring = false;
+      }
+
       return { thrustN, mdotKgPerS, currentStage: 1 };
     }
 
@@ -161,8 +156,8 @@ export class SbrlPyramidalRocket {
       this.stagingSubPhase = this.stage2FailureMode ? 'STAGE2_TURBOPUMP_ANOMALY' : 'STAGE2_VACUUM_BURN';
       this.isRcsFiring = false;
 
-      // In Stage 2 Failure Mode, chamber pressure cavitates to 36% nominal thrust
-      const thrustMultiplier = this.stage2FailureMode ? 0.36 : 1.0;
+      // In Stage 2 Failure Mode, chamber pressure cavitates to 32% nominal thrust -> projectile suborbital arc
+      const thrustMultiplier = this.stage2FailureMode ? 0.32 : 1.0;
       const thrustN = this.stage2ThrustVacN * thrustMultiplier;
       const mdotKgPerS = this.stage2ThrustVacN / (this.stage2IspVacS * CONSTANTS.g0);
       this.thrustN = thrustN;
@@ -262,7 +257,7 @@ export class SbrlPyramidalRocket {
   }
 
   /**
-   * Advance propellant consumption, staging sequence, and orbital guidance
+   * Advance propellant consumption, staging sequence, and projectile/orbital guidance
    */
   step(dt, ambientPressurePa, altitudeM, velocityVector = { vx: 0, vy: 0, vz: 0 }) {
     const { mdotKgPerS } = this.computeThrust(ambientPressurePa);
@@ -270,24 +265,19 @@ export class SbrlPyramidalRocket {
 
     this.updateOrbitalMechanics(altitudeM, velocityVector);
 
-    // ================= 1. STAGE 1 BURN (With Drop-Clear & Ullage Transition) =================
+    // ================= 1. STAGE 1 BURN (Propels directly from balloon alignment into projectile gravity turn) =================
     if (this.status === ROCKET_STATUS.STAGE1_BURN) {
       this.stage1BurnElapsed += dt;
+      this.separationClearanceM += Math.max(12.0, velocityVector.vy * 0.5) * dt;
 
-      if (this.stage1BurnElapsed < 1.5) {
-        // Separation clearance distance increases as rocket drops clear of balloon wake
-        this.separationClearanceM += 12.0 * dt;
-        this.targetPitchDeg = 89.0; // RCS aligns rocket near-vertical during drop-clear
-        this.attitudeRpyDeg.roll *= Math.max(0, 1 - 4.0 * dt);
-      } else {
-        this.separationClearanceM += 35.0 * dt;
-        const dProp = mdotKgPerS * dt;
-        this.currentStage1Propellant = Math.max(0, this.currentStage1Propellant - dProp);
+      const dProp = mdotKgPerS * dt;
+      this.currentStage1Propellant = Math.max(0, this.currentStage1Propellant - dProp);
 
-        // Stage 1 Gravity Turn: starts vertical (90 deg), turns down to 28 deg at burnout
-        const burnProgress = Math.min(1.0, (this.stage1BurnElapsed - 1.5) / (this.stage1BurnDurationS - 1.5));
-        this.targetPitchDeg = 90.0 - burnProgress * 62.0;
-      }
+      // Smooth projectile gravity turn starting aligned with the balloon (88 deg) down to 28 deg
+      const burnProgress = Math.min(1.0, this.stage1BurnElapsed / this.stage1BurnDurationS);
+      this.targetPitchDeg = 88.0 - burnProgress * 60.0;
+      this.attitudeRpyDeg.roll = 0.0;
+      this.attitudeRpyDeg.yaw = 0.0;
 
       // Stage 1 Burnout -> Transition to Interstage Separation & Stage 2
       if (this.currentStage1Propellant <= 0 || this.stage1BurnElapsed >= this.stage1BurnDurationS) {
@@ -310,16 +300,16 @@ export class SbrlPyramidalRocket {
       this.currentStage2Propellant = Math.max(0, this.currentStage2Propellant - dProp);
 
       if (this.stage2FailureMode) {
-        // ANOMALY PRESET: Stage 2 suffers thrust loss & TVC pitch droop, failing to achieve LEO
-        const progress = Math.min(1.0, this.stage2BurnElapsed / 28.0);
-        this.targetPitchDeg = 18.0 - progress * 38.0; // Droops below horizon (-20 deg)
+        // ANOMALY PRESET: Stage 2 suffers thrust loss & follows projectile motion arc
+        const progress = Math.min(1.0, this.stage2BurnElapsed / 25.0);
+        this.targetPitchDeg = 22.0 - progress * 42.0;
 
-        if (this.stage2BurnElapsed >= 28.0 || this.currentStage2Propellant <= 0) {
+        if (this.stage2BurnElapsed >= 25.0 || this.currentStage2Propellant <= 0) {
           this.status = ROCKET_STATUS.ORBIT_INSERTION_FAILURE;
           this.stagingSubPhase = 'ORBIT_INSERTION_FAILURE';
         }
       } else {
-        // NOMINAL Stage 2 Orbital Insertion Guidance: pitch steers from 28 deg down to 0 deg
+        // NOMINAL Stage 2 Orbital Insertion Guidance: pitch steers smoothly from 28 deg to 0 deg
         const progress = Math.min(1.0, this.stage2BurnElapsed / this.stage2BurnDurationS);
         this.targetPitchDeg = Math.max(0.0, 28.0 - progress * 34.0);
 
@@ -346,14 +336,21 @@ export class SbrlPyramidalRocket {
       this.targetPitchDeg = 0.0;
     }
 
-    // ================= 5. FAILED ORBIT INSERTION (SUBORBITAL BALLISTIC DECAY) =================
-    else if (this.status === ROCKET_STATUS.ORBIT_INSERTION_FAILURE) {
-      this.targetPitchDeg = Math.max(-45.0, (Math.atan2(velocityVector.vy, Math.max(1, horizSpeed)) * 180) / Math.PI);
+    // ================= 5. UNPOWERED PROJECTILE MOTION / SUBORBITAL DECAY =================
+    else if (
+      this.status === ROCKET_STATUS.ORBIT_INSERTION_FAILURE ||
+      this.status === ROCKET_STATUS.RAIL_RELEASE ||
+      this.status === ROCKET_STATUS.SEPARATED
+    ) {
+      const vTotal = Math.sqrt(horizSpeed * horizSpeed + velocityVector.vy * velocityVector.vy);
+      if (vTotal > 1.0) {
+        this.targetPitchDeg = (Math.atan2(velocityVector.vy, Math.max(0.5, horizSpeed)) * 180) / Math.PI;
+      }
     }
 
     // Attitude control actuator smoothing
     const pitchErr = this.targetPitchDeg - this.attitudeRpyDeg.pitch;
-    const alpha = Math.min(1.0, 2.5 * dt);
+    const alpha = Math.min(1.0, 4.0 * dt);
     this.angularRateDps.pitchRate = (pitchErr * alpha) / Math.max(dt, 0.001);
     this.attitudeRpyDeg.pitch += pitchErr * alpha;
   }
