@@ -1,0 +1,178 @@
+import React from 'react';
+import { Rocket, BookOpen, Download, Activity, Radio, Cpu, Compass, Sliders, TrendingUp, FileJson } from 'lucide-react';
+import { DRAWER_TABS } from './EngineeringDrawer.jsx';
+
+export function VirtualLabsHeader({
+  telemetry,
+  onOpenTheory,
+  onExportJson,
+  onOpenDrawerTab,
+  activeDrawerTab,
+  isDrawerOpen,
+  activeFaultCount = 0,
+}) {
+  const formatMet = (ms) => {
+    const totalSec = Math.floor(ms / 1000);
+    const m = Math.floor(totalSec / 60);
+    const s = totalSec % 60;
+    const tenths = Math.floor((ms % 1000) / 100);
+    return `T+${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${tenths}`;
+  };
+
+  const phase = telemetry?.flight_phase || 'PRELAUNCH';
+  const baroStatus = telemetry?.barometric_sensor?.status || 'NOMINAL';
+  const imuStatus = telemetry?.imu_sensor?.status || 'NOMINAL';
+  const gpsStatus = telemetry?.navigation_state?.status || 'NOMINAL';
+  const linkStatus = telemetry?.navigation_state?.transceiver_status || 'NOMINAL';
+
+  const getStatusBadge = (status) => {
+    if (status === 'NOMINAL') return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
+    if (status === 'DEGRADED') return 'bg-amber-500/20 text-amber-400 border-amber-500/40';
+    return 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse';
+  };
+
+  const getPhaseBadge = (p) => {
+    if (p.includes('STAGE') || p.includes('IGNITION')) return 'bg-rose-600/30 text-rose-300 border-rose-500/50';
+    if (p.includes('STRATO') || p.includes('FLOAT') || p.includes('RELEASE')) return 'bg-sky-600/30 text-sky-300 border-sky-500/50';
+    if (p.includes('JET')) return 'bg-amber-600/30 text-amber-300 border-amber-500/50';
+    return 'bg-emerald-600/30 text-emerald-300 border-emerald-500/50';
+  };
+
+  return (
+    <header className="h-14 border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-4 flex items-center justify-between z-30 select-none shadow-md">
+      {/* Left: Branding & V-Labs Identity */}
+      <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-2">
+          <div className="p-1.5 rounded-lg bg-sky-500/20 border border-sky-500/30 text-sky-400">
+            <Rocket className="w-5 h-5 animate-pulse" />
+          </div>
+          <div>
+            <div className="flex items-center space-x-2">
+              <span className="text-xs font-black tracking-widest text-sky-400 font-mono">V-LABS AEROSPACE</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">DIGITAL TWIN</span>
+            </div>
+            <h1 className="text-sm font-semibold text-slate-100 tracking-tight flex items-center gap-1.5">
+              Aeroin SpaceTech SBRL <span className="text-xs font-normal text-sky-400 font-mono hidden md:inline">Pyramidal Launcher (36-40 km)</span>
+            </h1>
+          </div>
+        </div>
+
+        {/* Phase Pill */}
+        <div className={`px-2.5 py-0.5 rounded-full border text-[11px] font-mono font-bold tracking-wider ${getPhaseBadge(phase)}`}>
+          {phase}
+        </div>
+      </div>
+
+      {/* Center: Mission Elapsed Time & Subsystem Health Badges */}
+      <div className="hidden xl:flex items-center space-x-5">
+        <div className="flex items-center space-x-2 font-mono">
+          <span className="text-xs text-slate-400">MET:</span>
+          <span className="text-sm font-bold text-sky-300 tabular-nums tracking-wider bg-slate-950/80 px-2.5 py-0.5 rounded border border-slate-800">
+            {formatMet(telemetry?.timestamp_ms || 0)}
+          </span>
+        </div>
+
+        {/* Subsystem Health Status Indicators */}
+        <div className="flex items-center space-x-1.5 text-[11px] font-mono">
+          <div className={`flex items-center space-x-1 px-2 py-0.5 rounded border ${getStatusBadge(baroStatus)}`}>
+            <Activity className="w-3 h-3" />
+            <span>BARO</span>
+          </div>
+          <div className={`flex items-center space-x-1 px-2 py-0.5 rounded border ${getStatusBadge(imuStatus)}`}>
+            <Cpu className="w-3 h-3" />
+            <span>IMU</span>
+          </div>
+          <div className={`flex items-center space-x-1 px-2 py-0.5 rounded border ${getStatusBadge(gpsStatus)}`}>
+            <Compass className="w-3 h-3" />
+            <span>GPS</span>
+          </div>
+          <div className={`flex items-center space-x-1 px-2 py-0.5 rounded border ${getStatusBadge(linkStatus)}`}>
+            <Radio className="w-3 h-3" />
+            <span>RF LINK</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Right: Drawer Tab Switchers & Lab Manual */}
+      <div className="flex items-center space-x-1.5">
+        {/* Quick Drawer Tabs */}
+        <div className="hidden sm:flex items-center bg-slate-950/80 rounded-lg p-0.5 border border-slate-800 text-xs font-mono">
+          <button
+            onClick={() => onOpenDrawerTab(DRAWER_TABS.INSTRUMENTS)}
+            className={`px-2.5 py-1 rounded flex items-center space-x-1 transition-all ${
+              isDrawerOpen && activeDrawerTab === DRAWER_TABS.INSTRUMENTS
+                ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 font-bold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="Open Flight Instruments Display"
+          >
+            <Compass className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">Instruments</span>
+          </button>
+
+          <button
+            onClick={() => onOpenDrawerTab(DRAWER_TABS.CHARTS)}
+            className={`px-2.5 py-1 rounded flex items-center space-x-1 transition-all ${
+              isDrawerOpen && activeDrawerTab === DRAWER_TABS.CHARTS
+                ? 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-bold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="Open Telemetry Strip Charts"
+          >
+            <TrendingUp className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">Charts</span>
+          </button>
+
+          <button
+            onClick={() => onOpenDrawerTab(DRAWER_TABS.SANDBOX)}
+            className={`px-2.5 py-1 rounded flex items-center space-x-1 relative transition-all ${
+              isDrawerOpen && activeDrawerTab === DRAWER_TABS.SANDBOX
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-bold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="Open Environmental Sandbox & Fault Injections"
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">Sandbox</span>
+            {activeFaultCount > 0 && (
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 absolute top-0.5 right-0.5" />
+            )}
+          </button>
+
+          <button
+            onClick={() => onOpenDrawerTab(DRAWER_TABS.JSON)}
+            className={`px-2.5 py-1 rounded flex items-center space-x-1 transition-all ${
+              isDrawerOpen && activeDrawerTab === DRAWER_TABS.JSON
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-bold'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+            title="Inspect Live Telemetry JSON Stream"
+          >
+            <FileJson className="w-3.5 h-3.5" />
+            <span className="hidden lg:inline">JSON</span>
+          </button>
+        </div>
+
+        {/* Export JSON Button */}
+        <button
+          onClick={onExportJson}
+          className="px-2.5 py-1.5 text-xs font-mono rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 flex items-center space-x-1.5 transition-all shadow-sm active:scale-95"
+          title="Export complete mission telemetry records to .json file"
+        >
+          <Download className="w-3.5 h-3.5" />
+          <span className="hidden md:inline">Export</span>
+        </button>
+
+        {/* Theory & Lab Manual Modal Trigger */}
+        <button
+          onClick={onOpenTheory}
+          className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-sky-600 hover:bg-sky-500 text-white flex items-center space-x-1.5 transition-all shadow-sm active:scale-95"
+          title="Open Lab Manual & Physical Derivations"
+        >
+          <BookOpen className="w-3.5 h-3.5" />
+          <span className="hidden sm:inline">Theory</span>
+        </button>
+      </div>
+    </header>
+  );
+}
