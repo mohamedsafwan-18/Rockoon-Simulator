@@ -139,6 +139,20 @@ export function App() {
               </div>
             )}
 
+            {/* Orbit Insertion Failure Alert */}
+            {kernel.rocket.status === 'ORBIT_INSERTION_FAILURE' && (
+              <div className="py-1 px-2 rounded bg-orange-950/90 border border-orange-500 text-orange-300 text-[10px] font-bold animate-pulse">
+                ⚠️ ORBIT INSERTION FAILED: SUBORBITAL DECAY
+              </div>
+            )}
+
+            {/* Auto-1x Speed at 34 km Notification */}
+            {kernel.hasAutoSlowedAt34km && altitude >= 34000 && altitude <= 41000 && kernel.timeWarp === 1 && (
+              <div className="py-1 px-2 rounded bg-sky-950/80 border border-sky-500/60 text-sky-300 text-[10px] font-bold">
+                ⏱️ 34 KM REACHED: SPEED SET TO 1x
+              </div>
+            )}
+
             {/* In Orbit Badge */}
             {kernel.rocket.status === 'LEO_ORBIT' && (
               <div className="py-1 px-2 rounded bg-amber-950/80 border border-amber-400 text-amber-300 text-[10px] font-bold shadow-lg animate-pulse">
@@ -148,7 +162,7 @@ export function App() {
 
             {/* Altitude & Variometer */}
             <div className="flex justify-between items-baseline">
-              <span className="text-slate-400 text-[11px]">Altitude:</span>
+              <span className="text-slate-400 text-[11px]">Altitude (Y):</span>
               <span className="text-sm font-bold text-sky-300 tabular-nums">
                 {Math.round(altitude)} <span className="text-[10px] font-normal text-slate-400">m</span>
                 <span className="text-[10px] text-slate-500 ml-1">({(altitude / 1000).toFixed(1)} km)</span>
@@ -194,6 +208,19 @@ export function App() {
               <span className="text-xs text-slate-300 tabular-nums">
                 {ambientTempC.toFixed(1)} <span className="text-[10px] text-slate-400">°C</span>
               </span>
+            </div>
+
+            {/* 3D GNSS Coordinates from Launch Pad Origin [0, 0, 0] */}
+            <div className="pt-1.5 border-t border-slate-800/90 space-y-0.5">
+              <div className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider flex justify-between">
+                <span>GNSS Origin [0,0,0]</span>
+                <span className="text-slate-400">3D XYZ (m)</span>
+              </div>
+              <div className="text-[10px] text-slate-200 tabular-nums flex justify-between">
+                <span>X: {Math.round(kernel.position.x)}m</span>
+                <span>Y: {Math.round(kernel.position.y)}m</span>
+                <span>Z: {Math.round(kernel.position.z)}m</span>
+              </div>
             </div>
           </div>
         </div>

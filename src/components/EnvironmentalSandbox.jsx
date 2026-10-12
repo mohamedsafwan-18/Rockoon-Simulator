@@ -1,11 +1,17 @@
 import React, { useState } from 'react';
-import { Sliders, Wind, Thermometer, Droplets, Gauge, AlertTriangle, ChevronDown, ChevronUp, RotateCcw, Zap, ShieldAlert, ShieldCheck, Flame, Skull } from 'lucide-react';
+import { Sliders, Wind, Thermometer, Droplets, Gauge, AlertTriangle, ChevronDown, ChevronUp, RotateCcw, Zap, ShieldAlert, ShieldCheck, Flame, Skull, Sparkles } from 'lucide-react';
+import { MISSION_PRESETS } from '../physics/simulationKernel.js';
 
 export function EnvironmentalSandbox({ kernel, onUpdate }) {
   const [isOpen, setIsOpen] = useState(true);
 
   const env = kernel.env;
   const faults = kernel.faults;
+
+  const handleSelectPreset = (presetId) => {
+    kernel.applyPreset(presetId);
+    onUpdate();
+  };
 
   const handleEnvChange = (key, val) => {
     kernel.setEnvParam(key, val);
@@ -42,10 +48,14 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
   const isInside = kernel.isInsideSafezone;
   const isBurst = kernel.isBalloonBurst;
 
-  // Calculate current envelope stress percentage
-  const atmo = kernel.generateSensorReadings()?.environmental_sensors;
-  const theoreticalVol = kernel.balloon?.getState(kernel.position.y, kernel.velocity, env)?.theoreticalVolumeM3 || 4200;
+  // Calculate current envelope stress percentage & thin-film membrane hoop stress
+  const latestReadings = kernel.generateSensorReadings();
+  const atmo = latestReadings?.environmental_sensors;
+  const bState = kernel.balloon?.getState(kernel.position.y, kernel.velocity, env);
+  const theoreticalVol = bState?.theoreticalVolumeM3 || 4200;
   const envelopeStressPct = Math.min(100, Math.round((theoreticalVol / kernel.balloon.burstVolumeLimitM3) * 100));
+  const hoopStressMPa = (bState?.membraneHoopStressMPa ?? 0).toFixed(2);
+  const diffPressurePa = (bState?.differentialSuperpressurePa ?? 0).toFixed(1);
 
   return (
     <div className="bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl overflow-hidden shadow-2xl transition-all">
@@ -81,7 +91,58 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
 
       {isOpen && (
         <div className="p-4 space-y-4 text-xs text-slate-300 max-h-[calc(100vh-240px)] overflow-y-auto custom-scrollbar">
-          
+
+          {/* SECTION 0: MISSION SCENARIO PRESETS (Failure Cases, Safezone, Failed LEO, Nominal) */}
+          <div className="bg-slate-950/75 p-3 rounded-xl border border-slate-800 space-y-2">
+            <div className="text-[11px] font-mono font-bold tracking-wider text-amber-400 uppercase flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                <span>0. Mission Scenario Presets</span>
+              </span>
+              <span className="text-[9px] text-slate-400 font-normal">Auto-1x at 34 km</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              {Object.values(MISSION_PRESETS).map((preset) => {
+                const isSelected = kernel.activePresetId === preset.id;
+                const badgeColors = {
+                  emerald: isSelected
+                    ? 'bg-emerald-500/25 border-emerald-400 text-emerald-200'
+                    : 'bg-slate-900/90 border-slate-800 hover:border-emerald-500/50 text-slate-300',
+                  amber: isSelected
+                    ? 'bg-amber-500/25 border-amber-400 text-amber-200'
+                    : 'bg-slate-900/90 border-slate-800 hover:border-amber-500/50 text-slate-300',
+                  orange: isSelected
+                    ? 'bg-orange-500/25 border-orange-400 text-orange-200'
+                    : 'bg-slate-900/90 border-slate-800 hover:border-orange-500/50 text-slate-300',
+                  rose: isSelected
+                    ? 'bg-rose-500/25 border-rose-400 text-rose-200'
+                    : 'bg-slate-900/90 border-slate-800 hover:border-rose-500/50 text-slate-300',
+                  purple: isSelected
+                    ? 'bg-purple-500/25 border-purple-400 text-purple-200'
+                    : 'bg-slate-900/90 border-slate-800 hover:border-purple-500/50 text-slate-300',
+                };
+                return (
+                  <button
+                    key={preset.id}
+                    onClick={() => handleSelectPreset(preset.id)}
+                    className={`p-2 rounded-lg border text-left transition-all flex flex-col justify-between ${
+                      badgeColors[preset.badgeColor] || badgeColors.emerald
+                    }`}
+                    title={preset.description}
+                  >
+                    <div className="font-mono font-bold text-[10px] flex items-center justify-between">
+                      <span>{preset.label}</span>
+                      {isSelected && <span className="text-[9px] px-1.5 py-0.2 rounded bg-white/10">ACTIVE</span>}
+                    </div>
+                    <div className="text-[9px] text-slate-400 line-clamp-2 mt-0.5 font-sans leading-tight">
+                      {preset.description}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* RANGE SAFETY & BALLOON ENVELOPE REAL-TIME GAUGES */}
           <div className="space-y-2.5">
             {/* SAFEZONE STATUS CARD */}
@@ -134,9 +195,9 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
             ) : (
               <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 flex flex-col space-y-1.5">
                 <div className="flex items-center justify-between font-mono text-[11px]">
-                  <span className="text-slate-300">Envelope Hoop Stress:</span>
+                  <span className="text-slate-300">Envelope Hoop Stress (σ):</span>
                   <span className={`font-bold tabular-nums ${envelopeStressPct > 85 ? 'text-rose-400 animate-pulse' : envelopeStressPct > 65 ? 'text-amber-400' : 'text-sky-300'}`}>
-                    {envelopeStressPct}% of 920,000 m³ Burst Limit
+                    {hoopStressMPa} MPa ({envelopeStressPct}% Vol Limit)
                   </span>
                 </div>
                 <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
@@ -146,7 +207,7 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
                   />
                 </div>
                 <div className="flex items-center justify-between pt-1">
-                  <span className="text-[10px] text-slate-400">Rupture margin: {(100 - envelopeStressPct)}%</span>
+                  <span className="text-[10px] text-slate-400 font-mono">ΔP: {diffPressurePa} Pa | Margin: {(100 - envelopeStressPct)}%</span>
                   <button
                     onClick={handleManualBurst}
                     className="text-[10px] font-mono text-rose-400 hover:text-rose-300 underline"

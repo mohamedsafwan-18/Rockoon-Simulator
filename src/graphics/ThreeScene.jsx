@@ -703,6 +703,37 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT, s
       clusterGroup.add(nozzle);
     }
 
+    // 7d. RCS COLD-GAS ATTITUDE & ULLAGE THRUSTER PUFFS (Active during balloon-to-rocket drop-clear & ullage settling)
+    const rcsThrusterGroup = new THREE.Group();
+    rcsThrusterGroup.visible = false;
+    rocketGroup.add(rcsThrusterGroup);
+
+    const rcsJetMat = new THREE.MeshBasicMaterial({
+      color: 0xe0f2fe,
+      transparent: true,
+      opacity: 0.88,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
+
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      // Lateral attitude control cold-gas jets on upper collar
+      const rcsCone = new THREE.Mesh(new THREE.ConeGeometry(0.18, 1.35, 12, 1, true), rcsJetMat);
+      rcsCone.position.set(Math.cos(a) * 1.85, 0.55, Math.sin(a) * 1.85);
+      rcsCone.rotation.z = a === 0 ? Math.PI / 2 : a === Math.PI ? -Math.PI / 2 : 0;
+      if (i === 1) rcsCone.rotation.x = -Math.PI / 2;
+      if (i === 3) rcsCone.rotation.x = Math.PI / 2;
+      rcsThrusterGroup.add(rcsCone);
+
+      // Downward ullage settling thrusters
+      const ullageCone = new THREE.Mesh(new THREE.ConeGeometry(0.16, 1.6, 12, 1, true), rcsJetMat);
+      ullageCone.rotation.x = Math.PI;
+      ullageCone.position.set(Math.cos(a) * 1.15, -1.6, Math.sin(a) * 1.15);
+      rcsThrusterGroup.add(ullageCone);
+    }
+
     // 8. YELLOW PLASMA FIRE THRUSTER SYSTEM (Volumetric Cones + Shock Diamonds + Fire PointLight)
     const plasmaThrusterGroup = new THREE.Group();
     plasmaThrusterGroup.visible = false;
@@ -844,6 +875,7 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT, s
       clusterGroup,
       solarWingsGroup,
       satBeaconMesh,
+      rcsThrusterGroup,
       plasmaThrusterGroup,
       individualNozzleFlames,
       mainPlasmaCore,
@@ -1019,6 +1051,8 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT, s
 
         if (rocketStatus === 'LEO_ORBIT') {
           obj.trajectoryLine.material.color.setHex(0xfacc15); // Brilliant golden LEO circular trace
+        } else if (rocketStatus === 'ORBIT_INSERTION_FAILURE') {
+          obj.trajectoryLine.material.color.setHex(0xf97316); // Orange suborbital decay trace
         } else if (kernel.isBalloonBurst || !kernel.isInsideSafezone) {
           obj.trajectoryLine.material.color.setHex(0xf43f5e);
         } else {
@@ -1050,6 +1084,15 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT, s
             obj.satBeaconMesh.material.opacity = pulse;
           } else {
             obj.satBeaconMesh.material.opacity = 0.0;
+          }
+        }
+
+        // RCS Cold-Gas Attitude & Ullage Thrusters during Balloon-to-Rocket Drop-Clear / Ullage Settling
+        if (obj.rcsThrusterGroup) {
+          obj.rcsThrusterGroup.visible = Boolean(kernel.rocket.isRcsFiring);
+          if (kernel.rocket.isRcsFiring) {
+            const rcsPulse = 0.8 + 0.35 * Math.sin(performance.now() * 0.15);
+            obj.rcsThrusterGroup.scale.set(1.0, rcsPulse, 1.0);
           }
         }
 
@@ -1108,13 +1151,16 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT, s
             });
           }
         } else {
-          obj.balloonGroup.position.y += 0.25;
+          // Realistic separation: balloon rebounds upward as rocket drops clear
+          const clearanceOffset = Math.min(450, (kernel.rocket.separationClearanceM || 0) * 0.45);
+          obj.balloonGroup.position.y += 0.22 + (clearanceOffset < 25 ? 0.15 : 0);
           if (obj.suspensionGroup) obj.suspensionGroup.visible = false;
         }
       }
 
       // 4. YELLOW PLASMA FIRE THRUSTERS (Volumetric Cones + Shock Diamonds + Particle Wake)
-      const isBurning = rocketStatus === 'STAGE1_BURN' || rocketStatus === 'STAGE2_BURN';
+      // Main plasma fire ignites after the 1.5s Pyro Drop-Clear & RCS Ullage Settling transition!
+      const isBurning = (rocketStatus === 'STAGE1_BURN' || rocketStatus === 'STAGE2_BURN') && kernel.rocket.thrustN > 5000;
       if (obj.plasmaThrusterGroup) {
         obj.plasmaThrusterGroup.visible = isBurning;
         if (isBurning) {

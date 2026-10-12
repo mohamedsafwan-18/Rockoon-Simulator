@@ -111,6 +111,17 @@ export class BalloonSystem {
     // Envelope stress ratio (% of burst limit)
     const envelopeStressPct = Math.min(100, Math.round((theoreticalVolume / this.burstVolumeLimitM3) * 100));
 
+    // Thin-film membrane hoop stress: sigma_hoop = (Delta_P * R) / (2 * t_film)
+    // 15-micron polyethylene film (t_film = 1.5e-5 m, tensile yield ~ 28 MPa)
+    const filmThicknessM = 1.5e-5;
+    const hydrostaticHeadPa = Math.max(0, atmo.rho_air - atmo.rho_he) * CONSTANTS.g0 * (radiusM * 1.4);
+    const overExpansionSuperpressurePa = theoreticalVolume > this.maxDesignVolumeM3
+      ? ((theoreticalVolume - this.maxDesignVolumeM3) / 40000) * 18.0
+      : 0.0;
+    const differentialSuperpressurePa = hydrostaticHeadPa + overExpansionSuperpressurePa;
+    const membraneHoopStressMPa = ((differentialSuperpressurePa * radiusM) / (2 * filmThicknessM)) / 1e6;
+    const superheatDeltaC = gasTempK - atmo.T_k;
+
     // Dynamic morphing: tall slender teardrop at sea level -> colossal pumpkin envelope at 38 km
     const inflationRatio = Math.min(1.0, currentVolume / this.maxDesignVolumeM3);
     const aspectHeightToWidth = 3.8 - 2.8 * inflationRatio;
@@ -136,6 +147,9 @@ export class BalloonSystem {
       aspectHeightToWidth,
       crossSectionAreaM2,
       envelopeStressPct,
+      differentialSuperpressurePa: Number(differentialSuperpressurePa.toFixed(2)),
+      membraneHoopStressMPa: Number(membraneHoopStressMPa.toFixed(2)),
+      superheatDeltaC: Number(superheatDeltaC.toFixed(2)),
       buoyantForceN,
       dragForceY,
       systemDeadMassKg,

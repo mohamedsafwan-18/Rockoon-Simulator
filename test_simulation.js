@@ -383,6 +383,98 @@ console.log('\n--- TEST SUITE 8: JSON Export Schema & Aeroin Metadata Conformanc
   assert(typeof sample.payload_state.thrust_n === 'number', 'sample has payload_state.thrust_n');
 }
 
+// -------------------------------------------------------------
+// TEST SUITE 9: AUTO-1x AT 34 KM, PRESETS, FAILED LEO, 3-STEP SEPARATION & 3D GNSS ORIGIN
+// -------------------------------------------------------------
+console.log('\n--- TEST SUITE 9: Auto-1x at 34 km, Presets, Failed LEO, Separation & 3D GNSS ---');
+{
+  // 9A: Auto-1x Speed Throttle when reaching 34 km altitude
+  const kSpeed = new SimulationKernel();
+  kSpeed.startMission();
+  kSpeed.setTimeWarp(25);
+  assert(kSpeed.timeWarp === 25, 'TimeWarp set to 25x during lower ascent');
+  kSpeed.position.y = 33995;
+  kSpeed.integrate(2.0); // Climbs past 34,000 m
+  assert(kSpeed.position.y >= 34000, `Vehicle crossed 34 km threshold: ${kSpeed.position.y.toFixed(1)} m`);
+  assert(kSpeed.timeWarp === 1.0, 'TimeWarp automatically throttled to 1x upon reaching 34 km altitude');
+  assert(kSpeed.hasAutoSlowedAt34km === true, 'hasAutoSlowedAt34km flag set to true');
+
+  // 9B: Realistic 3-Step Balloon-to-Rocket Separation Transition
+  const kSep = new SimulationKernel();
+  kSep.startMission();
+  kSep.position.y = 38000;
+  kSep.triggerIgnition();
+
+  // Step 1: 0.0s -> 0.8s PYRO_DROP_CLEAR
+  kSep.integrate(0.4);
+  assert(kSep.rocket.stagingSubPhase === 'PYRO_DROP_CLEAR', `At t=0.4s sub-phase is PYRO_DROP_CLEAR (${kSep.rocket.stagingSubPhase})`);
+  assert(kSep.rocket.isRcsFiring === true, 'RCS cold-gas attitude thrusters firing during drop-clear');
+  assert(kSep.rocket.separationClearanceM > 0, `Rocket dropping clear of balloon wake: clearance = ${kSep.rocket.separationClearanceM.toFixed(2)} m`);
+
+  // Step 2: 0.8s -> 1.5s RCS_ULLAGE_SETTLING
+  kSep.integrate(0.8); // Total 1.2s
+  assert(kSep.rocket.stagingSubPhase === 'RCS_ULLAGE_SETTLING', `At t=1.2s sub-phase is RCS_ULLAGE_SETTLING (${kSep.rocket.stagingSubPhase})`);
+  assert(kSep.rocket.isRcsFiring === true, 'RCS ullage thrusters firing to settle propellant');
+
+  // Step 3: >1.5s MAIN_ENGINE_IGNITION
+  kSep.integrate(0.6); // Total 1.8s
+  assert(kSep.rocket.stagingSubPhase === 'MAIN_ENGINE_IGNITION', `At t=1.8s sub-phase is MAIN_ENGINE_IGNITION (${kSep.rocket.stagingSubPhase})`);
+  assert(kSep.rocket.thrustN > 100000, `Main cluster yellow plasma engine ignited: thrust = ${kSep.rocket.thrustN.toFixed(0)} N`);
+
+  // 9C: Failed LEO Orbit Insertion Preset (FAILED_LEO_INSERTION)
+  const kFailLeo = new SimulationKernel();
+  kFailLeo.applyPreset('FAILED_LEO_INSERTION');
+  assert(kFailLeo.rocket.stage2FailureMode === true, 'FAILED_LEO_INSERTION preset enabled stage2FailureMode');
+  kFailLeo.startMission();
+  kFailLeo.position.y = 38000;
+  kFailLeo.triggerIgnition();
+  // Burn through Stage 1 (44s) and Stage 2 anomaly (55s)
+  for (let i = 0; i < 100; i++) {
+    kFailLeo.integrate(1.0);
+  }
+  assert(kFailLeo.rocket.status === ROCKET_STATUS.ORBIT_INSERTION_FAILURE, `Failed LEO preset resulted in ORBIT_INSERTION_FAILURE (${kFailLeo.rocket.status})`);
+  assert(kFailLeo.getFlightPhase() === FLIGHT_PHASES.ORBIT_INSERTION_FAILURE, 'Flight phase is ORBIT_INSERTION_FAILURE');
+  assert(kFailLeo.rocket.orbitalVelocityMps < 7500, `Underburn failed to reach orbital velocity: ${kFailLeo.rocket.orbitalVelocityMps.toFixed(1)} m/s`);
+
+  // 9D: Out of Safezone Preset (OUT_OF_SAFEZONE)
+  const kOutSafe = new SimulationKernel();
+  kOutSafe.applyPreset('OUT_OF_SAFEZONE');
+  assert(kOutSafe.env.windSpeedKmh >= 80, 'OUT_OF_SAFEZONE preset configured high crosswind');
+
+  // 9E: 3D GNSS Launch-Pad-Origin Coordinates [0, 0, 0] & 3 Dimensions in JSON
+  const kGnss = new SimulationKernel();
+  const padReading = kGnss.generateSensorReadings();
+  assert(
+    Array.isArray(padReading.gnss_coordinates.position_from_origin_xyz_m) &&
+      padReading.gnss_coordinates.position_from_origin_xyz_m[0] === 0 &&
+      padReading.gnss_coordinates.position_from_origin_xyz_m[1] === 0 &&
+      padReading.gnss_coordinates.position_from_origin_xyz_m[2] === 0,
+    'Launch pad origin is [0, 0, 0] in all 3 dimensions [X, Y, Z]'
+  );
+
+  kGnss.startMission();
+  kGnss.position.x = 1450.5;
+  kGnss.position.y = 12800.2;
+  kGnss.position.z = -420.8;
+  kGnss.integrate(0.2);
+
+  const exportGnss = kGnss.getExportJson();
+  const lastRec = exportGnss.sensor_telemetry_records[exportGnss.sensor_telemetry_records.length - 1];
+  assert(exportGnss.mission_metadata.gnss_origin_reference === 'Ground Launch Pad [X=0.0m, Y=0.0m, Z=0.0m]', 'Metadata specifies Ground Launch Pad [X=0.0m, Y=0.0m, Z=0.0m] origin');
+  assert(
+    Array.isArray(lastRec.gnss_coordinates.position_from_origin_xyz_m) &&
+      lastRec.gnss_coordinates.position_from_origin_xyz_m.length === 3,
+    'Exported JSON telemetry record contains 3D position_from_origin_xyz_m [X, Y, Z]'
+  );
+  assert(typeof lastRec.gnss_coordinates.x_downrange_m === 'number', 'Exported JSON has x_downrange_m');
+  assert(typeof lastRec.gnss_coordinates.y_altitude_m === 'number', 'Exported JSON has y_altitude_m');
+  assert(typeof lastRec.gnss_coordinates.z_crossrange_m === 'number', 'Exported JSON has z_crossrange_m');
+  assert(typeof lastRec.gnss_coordinates.slant_range_3d_m === 'number', 'Exported JSON has slant_range_3d_m');
+  assert(typeof lastRec.orbital_and_aerothermal_physics.specific_orbital_energy_mj_kg === 'number', 'Exported JSON has specific_orbital_energy_mj_kg');
+  assert(typeof lastRec.orbital_and_aerothermal_physics.membrane_hoop_stress_mpa === 'number', 'Exported JSON has membrane_hoop_stress_mpa');
+}
+
 console.log('\n================================================================');
 console.log(`🎉 ALL ${passedTests}/${totalTests} TESTS PASSED SUCCESSFULLY!`);
 console.log('================================================================');
+

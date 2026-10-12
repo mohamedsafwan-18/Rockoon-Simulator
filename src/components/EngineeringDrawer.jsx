@@ -26,31 +26,53 @@ export function EngineeringDrawer({
   const setActiveTab = onSelectTab || setInternalActiveTab;
   const [copied, setCopied] = useState(false);
 
-  // Formatted JSON frame
+  // Formatted JSON frame with 3D GNSS Launch-Pad-Origin coordinates & advanced physics
   const currentPacket = {
     timestamp_ms: telemetry?.timestamp_ms || 0,
     flight_phase: telemetry?.flight_phase || 'PRELAUNCH',
+    staging_sub_phase: telemetry?.staging_sub_phase || 'ATTACHED_TO_GONDOLA',
+    gnss_coordinates: telemetry?.gnss_coordinates || {
+      origin_reference: 'LAUNCH_PAD_ORIGIN [0, 0, 0]',
+      position_from_origin_xyz_m: [0, 0, 0],
+      x_downrange_m: 0,
+      y_altitude_m: 0,
+      z_crossrange_m: 0,
+      slant_range_3d_m: 0,
+      geodetic_wgs84: { latitude_deg: 28.5729, longitude_deg: -80.649, altitude_msl_m: 0 },
+    },
+    orbital_and_aerothermal_physics: telemetry?.orbital_and_aerothermal_physics || {
+      specific_orbital_energy_mj_kg: -62.55,
+      specific_angular_momentum_m2s: 0,
+      semi_major_axis_km: 0,
+      eccentricity: 1.0,
+      remaining_delta_v_mps: 9150,
+      dynamic_pressure_q_pa: 0,
+      max_q_pa: 0,
+      aerodynamic_heat_flux_wm2: 0,
+      membrane_hoop_stress_mpa: 0,
+      differential_superpressure_pa: 0,
+    },
     barometric_sensor: {
       pressure_hpa: telemetry?.barometric_sensor?.pressure_hpa || 1013.25,
       derived_altitude_m: telemetry?.barometric_sensor?.derived_altitude_m || 0.0,
-      status: telemetry?.barometric_sensor?.status || 'NOMINAL'
+      status: telemetry?.barometric_sensor?.status || 'NOMINAL',
     },
     imu_sensor: {
       accel_mps2: telemetry?.imu_sensor?.accel_mps2 || [0, 0, 9.81],
       gyro_dps: telemetry?.imu_sensor?.gyro_dps || [0, 0, 0],
       attitude_rpy_deg: telemetry?.imu_sensor?.attitude_rpy_deg || [0, 90, 0],
-      status: telemetry?.imu_sensor?.status || 'NOMINAL'
+      status: telemetry?.imu_sensor?.status || 'NOMINAL',
     },
     environmental_sensors: {
       ambient_temp_c: telemetry?.environmental_sensors?.ambient_temp_c || 15.0,
       relative_humidity_pct: telemetry?.environmental_sensors?.relative_humidity_pct || 65.0,
-      effective_wind_vector_mps: telemetry?.environmental_sensors?.effective_wind_vector_mps || [0, 0, 0]
+      effective_wind_vector_mps: telemetry?.environmental_sensors?.effective_wind_vector_mps || [0, 0, 0],
     },
     payload_state: {
       is_attached: telemetry?.payload_state?.is_attached ?? true,
       balloon_volume_m3: telemetry?.payload_state?.balloon_volume_m3 || 4200.0,
-      thrust_n: telemetry?.payload_state?.thrust_n || 0.0
-    }
+      thrust_n: telemetry?.payload_state?.thrust_n || 0.0,
+    },
   };
 
   const jsonString = JSON.stringify(currentPacket, null, 2);

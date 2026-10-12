@@ -197,8 +197,8 @@ export function PrimaryFlightDisplay({ telemetry, kernel }) {
           <div className="text-base font-bold font-mono text-emerald-300 truncate">
             {Math.round(payload.balloon_volume_m3).toLocaleString()} <span className="text-xs text-slate-400 font-normal">m³</span>
           </div>
-          <div className="text-[10px] text-slate-400 font-mono">
-            Envelope Expansion
+          <div className="text-[10px] text-slate-400 font-mono truncate">
+            {telemetry.staging_sub_phase || 'ATTACHED_TO_GONDOLA'}
           </div>
         </div>
 
@@ -214,6 +214,72 @@ export function PrimaryFlightDisplay({ telemetry, kernel }) {
           <div className="flex justify-between">
             <span>Total Mass:</span>
             <span className="text-slate-200">{payload.total_mass_kg} kg</span>
+          </div>
+        </div>
+      </div>
+
+      {/* 6. 3D GNSS LAUNCH-PAD-ORIGIN COORDINATES [X, Y, Z] */}
+      <div className="col-span-2 md:col-span-3 bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl p-3 flex flex-col justify-between shadow-lg">
+        <div className="flex items-center justify-between text-[10px] font-mono uppercase text-emerald-400 font-bold mb-1">
+          <span>3D GNSS Coordinates (Origin: Launch Pad [0, 0, 0])</span>
+          <span className="text-[9px] text-slate-400">Slant: {Math.round(telemetry.gnss_coordinates?.slant_range_3d_m || 0)} m</span>
+        </div>
+        <div className="grid grid-cols-3 gap-2 my-1 font-mono">
+          <div className="bg-slate-950/80 p-2 rounded-lg border border-slate-800">
+            <div className="text-[9px] text-slate-400">X (Downrange)</div>
+            <div className="text-xs font-bold text-sky-300 tabular-nums">
+              {(telemetry.gnss_coordinates?.x_downrange_m ?? 0).toFixed(1)} m
+            </div>
+          </div>
+          <div className="bg-slate-950/80 p-2 rounded-lg border border-slate-800">
+            <div className="text-[9px] text-slate-400">Y (Altitude)</div>
+            <div className="text-xs font-bold text-emerald-300 tabular-nums">
+              {(telemetry.gnss_coordinates?.y_altitude_m ?? 0).toFixed(1)} m
+            </div>
+          </div>
+          <div className="bg-slate-950/80 p-2 rounded-lg border border-slate-800">
+            <div className="text-[9px] text-slate-400">Z (Crossrange)</div>
+            <div className="text-xs font-bold text-indigo-300 tabular-nums">
+              {(telemetry.gnss_coordinates?.z_crossrange_m ?? 0).toFixed(1)} m
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-between text-[10px] font-mono text-slate-400 pt-1 border-t border-slate-800/80">
+          <span>WGS84 Lat: {telemetry.gnss_coordinates?.geodetic_wgs84?.latitude_deg ?? 28.5729}°</span>
+          <span>Lon: {telemetry.gnss_coordinates?.geodetic_wgs84?.longitude_deg ?? -80.649}°</span>
+        </div>
+      </div>
+
+      {/* 7. KEPLERIAN ORBITAL & AEROTHERMAL PHYSICS */}
+      <div className="col-span-2 md:col-span-3 bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl p-3 flex flex-col justify-between shadow-lg">
+        <div className="flex items-center justify-between text-[10px] font-mono uppercase text-amber-400 font-bold mb-1">
+          <span>Orbital Mechanics & Aerothermal Physics</span>
+          <span className="text-[9px] text-slate-400">Max-Q: {Math.round(telemetry.orbital_and_aerothermal_physics?.max_q_pa || 0)} Pa</span>
+        </div>
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[10px] font-mono text-slate-400 my-0.5">
+          <div className="flex justify-between">
+            <span>Specific Energy (ε):</span>
+            <span className="text-amber-300 font-bold">{telemetry.orbital_and_aerothermal_physics?.specific_orbital_energy_mj_kg ?? -62.55} MJ/kg</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Eccentricity (e):</span>
+            <span className="text-sky-300 font-bold">{telemetry.orbital_and_aerothermal_physics?.eccentricity ?? 1.0}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Remaining ΔV:</span>
+            <span className="text-emerald-300 font-bold">{Math.round(telemetry.orbital_and_aerothermal_physics?.remaining_delta_v_mps ?? 9150)} m/s</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Aero Heat Flux (q̇):</span>
+            <span className="text-rose-300 font-bold">{Math.round(telemetry.orbital_and_aerothermal_physics?.aerodynamic_heat_flux_wm2 ?? 0)} W/m²</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Hoop Stress (σ):</span>
+            <span className="text-purple-300 font-bold">{telemetry.orbital_and_aerothermal_physics?.membrane_hoop_stress_mpa ?? 0} MPa</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Sep Clearance:</span>
+            <span className="text-slate-200">{telemetry.payload_state?.separation_clearance_m ?? 0} m</span>
           </div>
         </div>
       </div>
