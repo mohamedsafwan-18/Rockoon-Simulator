@@ -1,6 +1,7 @@
 // Rockoon Digital Twin Simulation Kernel
-// Multi-body flight mechanics, RK4/Euler numerical integration, wind profile,
-// sensor fault injection engine, and telemetry data pipeline.
+// Multi-body flight mechanics, orbital mechanics (LEO insertion), wind profile,
+// sensor fault injection engine, safezone airspace boundary monitoring,
+// balloon rupture/burst thresholds, and telemetry data pipeline.
 
 import { CONSTANTS, calculateAtmosphere, pressureToAltitude } from './isaAtmosphere.js';
 import { BalloonSystem } from './balloonDynamics.js';
@@ -16,9 +17,17 @@ export const FLIGHT_PHASES = {
   RAIL_RELEASE: 'RAIL_RELEASE',
   SEPARATED: 'SEPARATED',
   STAGE1_BURN: 'STAGE1_BURN',
+  STAGE1_SEPARATION: 'STAGE1_SEPARATION',
   STAGE2_BURN: 'STAGE2_BURN',
-  COAST: 'COAST'
+  LEO_ORBIT: 'LEO_ORBIT',
+  COAST: 'COAST',
+  BALLOON_BURST: 'BALLOON_BURST',
+  FREE_FALL: 'FREE_FALL',
+  GROUND_IMPACT: 'GROUND_IMPACT',
+  ILLEGAL_LAUNCH: 'ILLEGAL_LAUNCH'
 };
+
+const R_EARTH = 6371000.0; // Mean Earth radius in meters
 
 export class SimulationKernel {
   constructor() {
@@ -27,7 +36,7 @@ export class SimulationKernel {
 
     // Environment Configuration
     this.env = {
-      windSpeedKmh: 45.0,        // 0 to 120 km/h
+      windSpeedKmh: 20.0,        // 0 to 120 km/h (20 km/h nominal launch weather stays inside 35 km safezone)
       windDirectionDeg: 180.0,   // 0 to 360 deg (180 = from South toward North)
       turbulenceLevel: 'mild',   // 'calm' | 'mild' | 'severe'
       tempDeltaC: 0.0,           // -30 to +30 °C
@@ -57,8 +66,16 @@ export class SimulationKernel {
 
     // Balloon flight train state
     this.isTetherAttached = true;
+    this.isBalloonBurst = false;
+    this.balloonBurstReason = null;
     this.safetyAltitudeM = 36000.0; // 36 km minimum safety altitude for SBRL release
     this.safetyOverride = false;
+
+    // Designated Airspace Safezone (Maritime/Airspace Safety Corridor)
+    this.safezoneRadiusM = 35000.0; // 35 km radius from launch pad
+    this.currentDriftM = 0.0;
+    this.isInsideSafezone = true;
+    this.isIllegalLaunch = false;
 
     // Sensor state filters & fault state variables
     this.stuckBaroPressure = null;
@@ -71,6 +88,10 @@ export class SimulationKernel {
     this.telemetryBuffer = [];
     this.maxBufferSize = 15000;
     this.lastLogTimeMs = 0;
+
+    // 3D Historical Flight Trajectory Trace (small line trace for Three.js)
+    this.trajectoryPoints = [];
+    this.lastTrajectoryRecordTimeMs = 0;
 
     // Explicit Mission Lifecycle Control (Starts on Ground Pad until user clicks Start)
     this.hasLaunched = false;
@@ -116,6 +137,11 @@ export class SimulationKernel {
 
   setEnvParam(key, val) {
     this.env[key] = val;
+
+    // Instantly evaluate whether this new sandbox setting bursts the envelope!
+    if (this.hasLaunched && this.isTetherAttached && !this.isBalloonBurst) {
+      this.checkBalloonBurst();
+    }
   }
 
   toggleFault(key) {
@@ -123,7 +149,7 @@ export class SimulationKernel {
   }
 
   resetEnvAndFaults() {
-    this.env.windSpeedKmh = 45.0;
+    this.env.windSpeedKmh = 20.0;
     this.env.windDirectionDeg = 180.0;
     this.env.turbulenceLevel = 'mild';
     this.env.tempDeltaC = 0.0;
@@ -146,12 +172,19 @@ export class SimulationKernel {
     this.velocity = { vx: 0.0, vy: 0.0, vz: 0.0 };
     this.acceleration = { ax: 0.0, ay: 0.0, az: 0.0 };
     this.isTetherAttached = true;
+    this.isBalloonBurst = false;
+    this.balloonBurstReason = null;
+    this.currentDriftM = 0.0;
+    this.isInsideSafezone = true;
+    this.isIllegalLaunch = false;
     this.stuckBaroPressure = null;
     this.baroDriftHpa = 0.0;
     this.gpsDropoutCountdown = 0;
     this.cachedGpsPos = null;
     this.telemetryBuffer = [];
+    this.trajectoryPoints = [];
     this.lastLogTimeMs = 0;
+    this.lastTrajectoryRecordTimeMs = 0;
     this.hasLaunched = false;
     this.isRunning = false;
   }
@@ -174,15 +207,18 @@ export class SimulationKernel {
       const sigma = 2000;
       const gaussian = Math.exp(-Math.pow(altitudeM - jetPeak, 2) / (2 * sigma * sigma));
       profileMultiplier = 1.0 + 1.2 * gaussian;
-    } else if (altitudeM > 18000) {
-      // Stratospheric lull & stable float corridor up to 40 km
+    } else if (altitudeM > 18000 && altitudeM < 50000) {
+      // Stratospheric lull
       profileMultiplier = Math.max(0.15, 0.85 - 0.7 * Math.min(1.0, (altitudeM - 18000) / 18000));
+    } else if (altitudeM >= 50000) {
+      // Near vacuum space (mesosphere & thermosphere) -> zero aerodynamic wind
+      profileMultiplier = 0.0;
     }
 
     // Turbulence intensity
     let turbIntensity = 0.0;
     if (this.env.turbulenceLevel === 'mild') turbIntensity = 0.15;
-    if (this.env.turbulenceLevel === 'severe') turbIntensity = 0.45;
+    if (this.env.turbulenceLevel === 'severe') turbIntensity = 0.55;
 
     // Harmonic wind gust fluctuations
     const tSec = this.timeMs / 1000;
@@ -200,17 +236,69 @@ export class SimulationKernel {
   }
 
   /**
+   * Check if environmental or flight conditions burst the balloon
+   */
+  checkBalloonBurst() {
+    if (this.isBalloonBurst || !this.isTetherAttached) return false;
+
+    const wind = this.getWindVector(this.position.y);
+    const result = this.balloon.checkBurst(this.position.y, this.env, this.velocity, wind);
+
+    if (result.isBurst) {
+      this.handleBalloonBurst(result.reason);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Trigger Balloon Rupture / Burst
+   * Buoyancy drops to 0, tether disconnects, and rocket enters free-fall descent!
+   */
+  handleBalloonBurst(reason = 'BALLOON ENVELOPE RUPTURE') {
+    this.isBalloonBurst = true;
+    this.balloonBurstReason = reason;
+    this.isTetherAttached = false;
+    this.balloon.isBurst = true;
+    this.balloon.isCutDown = true;
+    return true;
+  }
+
+  /**
+   * Manual burst command for testing from Sandbox UI
+   */
+  triggerBalloonBurst(reason = 'MANUAL TEST BURST: Overpressure burst command issued from Sandbox') {
+    return this.handleBalloonBurst(reason);
+  }
+
+  /**
    * Determine flight phase string for Aeroin SpaceTech SBRL
    */
   getFlightPhase() {
     if (!this.hasLaunched) {
       return FLIGHT_PHASES.PRELAUNCH;
     }
-    if (this.position.y < 25 && this.velocity.vy < 0.1 && this.rocket.status === ROCKET_STATUS.SLUNG) {
-      return FLIGHT_PHASES.PRELAUNCH;
+
+    // Balloon Burst & Free-fall
+    if (this.isBalloonBurst && this.rocket.status === ROCKET_STATUS.SLUNG) {
+      return this.position.y <= 1.0 ? FLIGHT_PHASES.GROUND_IMPACT : FLIGHT_PHASES.BALLOON_BURST;
     }
+
+    // Free fall if tether severed without engine burn
+    if (!this.isTetherAttached && this.rocket.status === ROCKET_STATUS.RAIL_RELEASE && this.velocity.vy < -2.0) {
+      return this.position.y <= 1.0 ? FLIGHT_PHASES.GROUND_IMPACT : FLIGHT_PHASES.FREE_FALL;
+    }
+
+    // Ground impact
+    if (this.position.y <= 1.0 && this.hasLaunched && (this.isBalloonBurst || !this.isTetherAttached) && this.velocity.vy <= 0) {
+      return FLIGHT_PHASES.GROUND_IMPACT;
+    }
+
+    // Rocket Staging & Orbital Phases
     if (this.rocket.status === ROCKET_STATUS.STAGE1_BURN) return FLIGHT_PHASES.STAGE1_BURN;
+    if (this.rocket.status === ROCKET_STATUS.STAGE1_SEPARATION) return FLIGHT_PHASES.STAGE1_SEPARATION;
     if (this.rocket.status === ROCKET_STATUS.STAGE2_BURN) return FLIGHT_PHASES.STAGE2_BURN;
+    if (this.rocket.status === ROCKET_STATUS.LEO_ORBIT) return FLIGHT_PHASES.LEO_ORBIT;
     if (this.rocket.status === ROCKET_STATUS.COAST) return FLIGHT_PHASES.COAST;
     if (this.rocket.status === ROCKET_STATUS.RAIL_RELEASE || this.rocket.status === ROCKET_STATUS.SEPARATED) {
       return FLIGHT_PHASES.RAIL_RELEASE;
@@ -255,7 +343,7 @@ export class SimulationKernel {
   }
 
   /**
-   * Manual Rocket Ignition Trigger (36,000 m safety threshold)
+   * Manual Rocket Ignition Trigger (with Range Safety Corridor interlock)
    */
   triggerIgnition() {
     const isAboveSafety = this.position.y >= this.safetyAltitudeM || this.safetyOverride;
@@ -263,96 +351,187 @@ export class SimulationKernel {
       return { success: false, reason: `Safety Interlock Active: Altitude (${Math.round(this.position.y)}m) is below 36,000m SBRL threshold.` };
     }
 
+    // SAFEZONE AIRSPACE VIOLATION CHECK
+    if (!this.isInsideSafezone && !this.safetyOverride) {
+      this.isIllegalLaunch = true;
+      return {
+        success: false,
+        reason: `RANGE SAFETY HOLD: ILLEGAL ROCKET LAUNCH! Vehicle is outside approved 35 km safety corridor (${(this.currentDriftM / 1000).toFixed(1)} km drift). Safety interlock engaged.`
+      };
+    }
+
     if (this.isTetherAttached) {
       this.triggerCutDown();
     }
 
     this.rocket.status = ROCKET_STATUS.STAGE1_BURN;
-    return { success: true, reason: 'SBRL Stage 1 Vacuum Ignition Confirmed.' };
+    return {
+      success: true,
+      reason: this.isInsideSafezone
+        ? 'SBRL Stage 1 Vacuum Ignition Confirmed (Nominal Flight Corridor).'
+        : 'SBRL Stage 1 Ignited (WARNING: ILLEGAL LAUNCH OUTSIDE APPROVED SAFEZONE).'
+    };
   }
 
   /**
    * Run one integration timestep (dt seconds)
+   * Integrates multi-body physics, spherical Earth gravity, and orbital centrifugal acceleration.
    */
   integrate(dt) {
     if (!this.hasLaunched || !this.isRunning || dt <= 0) return;
 
+    // Range Safety: calculate horizontal drift distance from launch pad (0, 0)
+    this.currentDriftM = Math.sqrt(this.position.x * this.position.x + this.position.z * this.position.z);
+    this.isInsideSafezone = (this.currentDriftM <= this.safezoneRadiusM);
+
     const atmo = calculateAtmosphere(this.position.y, this.env);
     const wind = this.getWindVector(this.position.y);
 
+    // Spherical Earth Gravity & Orbital Centrifugal Acceleration
+    const rCurrent = R_EARTH + this.position.y;
+    const gLocal = CONSTANTS.g0 * Math.pow(R_EARTH / rCurrent, 2);
+    const horizSpeedSq = (this.velocity.vx * this.velocity.vx) + (this.velocity.vz * this.velocity.vz);
+    const aCentrifugal = horizSpeedSq / rCurrent; // Opposes gravity as vehicle reaches orbital velocity
+
     if (this.isTetherAttached) {
-      // ================= ASCENT PHASE (BALLOON + ROCKET COUPLED) =================
-      const balloonState = this.balloon.getState(this.position.y, this.velocity, this.env);
-      const totalSystemMass = balloonState.systemDeadMassKg + this.rocket.getMassKg();
+      // Check if sandbox environmental thresholds burst the balloon
+      this.checkBalloonBurst();
 
-      // Buoyant lift pulling upwards
-      const fBuoyantY = balloonState.buoyantForceN;
+      if (this.isBalloonBurst) {
+        // Balloon just burst: tether disconnected, rocket begins falling
+        this.acceleration.ay = -gLocal;
+        this.acceleration.ax = 0;
+        this.acceleration.az = 0;
+      } else {
+        // ================= ASCENT PHASE (BALLOON + ROCKET COUPLED) =================
+        const balloonState = this.balloon.getState(this.position.y, this.velocity, this.env, wind);
+        const totalSystemMass = balloonState.systemDeadMassKg + this.rocket.getMassKg();
 
-      // Gravity pulling downwards
-      const fGravityY = totalSystemMass * CONSTANTS.g0;
+        // Buoyant lift pulling upwards
+        const fBuoyantY = balloonState.buoyantForceN;
 
-      // Vertical drag
-      const relVy = this.velocity.vy - wind.vy;
-      const fDragY = 0.5 * atmo.rho_air * relVy * Math.abs(relVy) * this.balloon.dragCoeff * balloonState.crossSectionAreaM2;
+        // Gravity pulling downwards
+        const fGravityY = totalSystemMass * gLocal;
 
-      // Horizontal wind drag coupling (pushes vehicle along wind)
-      const relVx = this.velocity.vx - wind.vx;
-      const relVz = this.velocity.vz - wind.vz;
-      const horizCouplingK = 0.8; // Aerodynamic drag coupling constant
-      const fWindDragX = -0.5 * atmo.rho_air * relVx * Math.abs(relVx) * this.balloon.dragCoeff * balloonState.crossSectionAreaM2 * horizCouplingK;
-      const fWindDragZ = -0.5 * atmo.rho_air * relVz * Math.abs(relVz) * this.balloon.dragCoeff * balloonState.crossSectionAreaM2 * horizCouplingK;
+        // Vertical drag
+        const relVy = this.velocity.vy - wind.vy;
+        const fDragY = 0.5 * atmo.rho_air * relVy * Math.abs(relVy) * this.balloon.dragCoeff * balloonState.crossSectionAreaM2;
 
-      // Net accelerations
-      this.acceleration.ay = (fBuoyantY - fGravityY - fDragY) / totalSystemMass;
-      this.acceleration.ax = fWindDragX / totalSystemMass;
-      this.acceleration.az = fWindDragZ / totalSystemMass;
+        // Horizontal wind drag coupling (pushes vehicle along wind)
+        const relVx = this.velocity.vx - wind.vx;
+        const relVz = this.velocity.vz - wind.vz;
+        const horizCouplingK = 0.8;
+        const fWindDragX = -0.5 * atmo.rho_air * relVx * Math.abs(relVx) * this.balloon.dragCoeff * balloonState.crossSectionAreaM2 * horizCouplingK;
+        const fWindDragZ = -0.5 * atmo.rho_air * relVz * Math.abs(relVz) * this.balloon.dragCoeff * balloonState.crossSectionAreaM2 * horizCouplingK;
 
-      // Gentle balloon pendulum sway attitude
-      const tSec = this.timeMs / 1000;
-      this.rocket.attitudeRpyDeg.pitch = 90.0 + Math.sin(tSec * 0.9) * (this.env.turbulenceLevel === 'severe' ? 6.0 : 1.5);
-      this.rocket.attitudeRpyDeg.roll = Math.cos(tSec * 1.1) * (this.env.turbulenceLevel === 'severe' ? 5.0 : 1.2);
-      this.rocket.attitudeRpyDeg.yaw = (this.env.windDirectionDeg + 180 + Math.sin(tSec * 0.3) * 5) % 360;
+        // Net accelerations
+        this.acceleration.ay = (fBuoyantY - fGravityY - fDragY) / totalSystemMass;
+        this.acceleration.ax = fWindDragX / totalSystemMass;
+        this.acceleration.az = fWindDragZ / totalSystemMass;
+
+        // Pendulum sway attitude
+        const tSec = this.timeMs / 1000;
+        this.rocket.attitudeRpyDeg.pitch = 90.0 + Math.sin(tSec * 0.9) * (this.env.turbulenceLevel === 'severe' ? 6.0 : 1.5);
+        this.rocket.attitudeRpyDeg.roll = Math.cos(tSec * 1.1) * (this.env.turbulenceLevel === 'severe' ? 5.0 : 1.2);
+        this.rocket.attitudeRpyDeg.yaw = (this.env.windDirectionDeg + 180 + Math.sin(tSec * 0.3) * 5) % 360;
+      }
 
     } else {
-      // ================= FREE ROCKET FLIGHT PHASE =================
+      // ================= FREE ROCKET FLIGHT / ORBITAL INSERTION / FREE FALL =================
       const rocketMass = this.rocket.getMassKg();
       const { thrustN } = this.rocket.computeThrust(atmo.P_pa);
       const aero = this.rocket.computeAero(this.position.y, this.velocity, atmo);
 
-      // Pitch and Yaw direction cosines
-      const pitchRad = (this.rocket.attitudeRpyDeg.pitch * Math.PI) / 180;
-      const yawRad = (this.rocket.attitudeRpyDeg.yaw * Math.PI) / 180;
+      const isBurning = (this.rocket.status === ROCKET_STATUS.STAGE1_BURN || this.rocket.status === ROCKET_STATUS.STAGE2_BURN);
 
-      const thrustDirX = Math.cos(pitchRad) * Math.sin(yawRad);
-      const thrustDirY = Math.sin(pitchRad);
-      const thrustDirZ = Math.cos(pitchRad) * Math.cos(yawRad);
+      if (isBurning && thrustN > 0) {
+        // Powered rocket flight toward Low Earth Orbit (LEO)
+        const pitchRad = (this.rocket.attitudeRpyDeg.pitch * Math.PI) / 180;
+        
+        // Thrust direction: x is downrange orbital prograde, y is vertical
+        const fThrustX = thrustN * Math.cos(pitchRad);
+        const fThrustY = thrustN * Math.sin(pitchRad);
+        const fThrustZ = 0.0;
 
-      const fThrustX = thrustN * thrustDirX;
-      const fThrustY = thrustN * thrustDirY;
-      const fThrustZ = thrustN * thrustDirZ;
+        // Net vertical acceleration includes centrifugal lift from high orbital velocity:
+        // a_y = (F_thrust_y + F_drag_y)/m - gLocal + a_centrifugal
+        this.acceleration.ax = (fThrustX + aero.dragVector.fx) / rocketMass;
+        this.acceleration.ay = ((fThrustY + aero.dragVector.fy) / rocketMass) - gLocal + aCentrifugal;
+        this.acceleration.az = (fThrustZ + aero.dragVector.fz) / rocketMass;
 
-      const fGravityY = rocketMass * CONSTANTS.g0;
+        // Step propellant and stage transitions
+        this.rocket.step(dt, atmo.P_pa, this.position.y, this.velocity);
 
-      this.acceleration.ax = (fThrustX + aero.dragVector.fx) / rocketMass;
-      this.acceleration.ay = (fThrustY - fGravityY + aero.dragVector.fy) / rocketMass;
-      this.acceleration.az = (fThrustZ + aero.dragVector.fz) / rocketMass;
+        // If SECO just achieved circular LEO, align velocity vector tangent to orbit
+        if (this.rocket.status === ROCKET_STATUS.LEO_ORBIT) {
+          const vCircular = Math.sqrt(gLocal * rCurrent);
+          this.velocity.vx = Math.max(this.velocity.vx, vCircular);
+          this.velocity.vy = 0.0;
+          this.velocity.vz = 0.0;
+          this.acceleration.ax = 0.0;
+          this.acceleration.ay = 0.0;
+          this.acceleration.az = 0.0;
+          this.rocket.orbitalVelocityMps = this.velocity.vx;
+        }
 
-      // Step rocket fuel consumption & attitude guidance
-      this.rocket.step(dt, atmo.P_pa);
+      } else if (this.rocket.status === ROCKET_STATUS.LEO_ORBIT) {
+        // ================= STABLE LOW EARTH ORBIT (LEO) =================
+        // In circular LEO, centrifugal acceleration balances gravity: aCentrifugal = gLocal -> a_y = 0!
+        const vCircular = Math.sqrt(gLocal * rCurrent);
+        this.velocity.vx = Math.max(this.velocity.vx, vCircular);
+        this.velocity.vy = 0.0;
+        this.velocity.vz = 0.0;
+        this.acceleration.ax = 0.0;
+        this.acceleration.ay = 0.0; // Perpetual circular orbit equilibrium
+        this.acceleration.az = 0.0;
+        this.rocket.step(dt, atmo.P_pa, this.position.y, this.velocity);
+
+      } else {
+        // ================= UNPOWERED FREE FALL (BALLOON BURST OR JETTISON) =================
+        // Rocket plunges downward under gravity with aerodynamic drag
+        this.acceleration.ax = aero.dragVector.fx / rocketMass;
+        this.acceleration.ay = -gLocal + (aero.dragVector.fy / rocketMass);
+        this.acceleration.az = aero.dragVector.fz / rocketMass;
+      }
     }
 
-    // Semi-implicit Euler integration
+    // Numerical integration (Semi-implicit Euler)
     this.velocity.vx += this.acceleration.ax * dt;
     this.velocity.vy += this.acceleration.ay * dt;
     this.velocity.vz += this.acceleration.az * dt;
 
     this.position.x += this.velocity.vx * dt;
-    this.position.y = Math.max(0, this.position.y + this.velocity.vy * dt);
+    this.position.y += this.velocity.vy * dt;
     this.position.z += this.velocity.vz * dt;
+
+    // Ground clamp if falling vehicle hits surface
+    if (this.position.y <= 0) {
+      this.position.y = 0;
+      this.velocity.vx = 0;
+      this.velocity.vy = 0;
+      this.velocity.vz = 0;
+      this.acceleration.ax = 0;
+      this.acceleration.ay = 0;
+      this.acceleration.az = 0;
+    }
 
     this.timeMs += dt * 1000;
 
-    // Record telemetry sample according to sampleRateHz
+    // Record 3D Trajectory Track Line (Sampled for visual ribbon line trace)
+    if (this.timeMs - this.lastTrajectoryRecordTimeMs >= 250) {
+      this.lastTrajectoryRecordTimeMs = this.timeMs;
+      this.trajectoryPoints.push({
+        x: this.position.x,
+        y: this.position.y,
+        z: this.position.z,
+        phase: this.getFlightPhase()
+      });
+      if (this.trajectoryPoints.length > 3000) {
+        this.trajectoryPoints.shift();
+      }
+    }
+
+    // Record downlink telemetry sample according to sampleRateHz
     const sampleIntervalMs = 1000 / this.sampleRateHz;
     if (this.timeMs - this.lastLogTimeMs >= sampleIntervalMs) {
       this.recordTelemetryRecord();
@@ -382,12 +561,11 @@ export class SimulationKernel {
     }
 
     if (this.faults.baroDriftActive) {
-      this.baroDriftHpa += 0.05 * (Math.random() - 0.4); // Random walk drift
+      this.baroDriftHpa += 0.05 * (Math.random() - 0.4);
       measuredPressureHpa += this.baroDriftHpa;
       baroStatus = 'DEGRADED';
     }
 
-    // Small normal sensor Gaussian noise
     measuredPressureHpa += (Math.random() - 0.5) * 0.08;
     const derivedBaroAlt = pressureToAltitude(measuredPressureHpa, this.env.tempDeltaC);
 
@@ -405,7 +583,7 @@ export class SimulationKernel {
       accelNoiseX += (Math.random() - 0.5) * 2.5 + 0.8;
       accelNoiseY += (Math.random() - 0.5) * 2.5 - 1.1;
       accelNoiseZ += (Math.random() - 0.5) * 2.5;
-      gyroNoiseP += (Math.random() - 0.5) * 12.0 + 3.0; // Gyro bias spike
+      gyroNoiseP += (Math.random() - 0.5) * 12.0 + 3.0;
       gyroNoiseR += (Math.random() - 0.5) * 12.0;
       gyroNoiseY += (Math.random() - 0.5) * 12.0;
     }
@@ -428,17 +606,18 @@ export class SimulationKernel {
       Number((this.rocket.attitudeRpyDeg.yaw + (this.faults.imuNoise ? (Math.random() - 0.5) * 8 : 0)).toFixed(2))
     ];
 
-    // 3. PITOT / AIRSPEED FAULT INJECTION
-    const trueAirspeed = Math.sqrt(
-      Math.pow(this.velocity.vx - wind.vx, 2) +
-      Math.pow(this.velocity.vy - wind.vy, 2) +
-      Math.pow(this.velocity.vz - wind.vz, 2)
-    );
-    let measuredAirspeed = trueAirspeed;
+    // 3. PITOT / AIRSPEED SENSOR
+    const relVx = this.velocity.vx - wind.vx;
+    const relVy = this.velocity.vy - wind.vy;
+    const relVz = this.velocity.vz - wind.vz;
+    const trueAirspeed = Math.sqrt(relVx * relVx + relVy * relVy + relVz * relVz);
+
+    let measuredAirspeed = trueAirspeed + (Math.random() - 0.5) * 0.3;
     let pitotStatus = 'NOMINAL';
+
     if (this.faults.pitotIcing) {
       pitotStatus = 'FAILED';
-      measuredAirspeed = Math.max(0, (Math.random() - 0.5) * 2.0); // Clogged near zero
+      measuredAirspeed = Math.max(0, (Math.random() - 0.5) * 2.0);
     }
 
     // 4. GPS FAULT INJECTION
@@ -449,7 +628,6 @@ export class SimulationKernel {
 
     if (this.faults.gpsLoss) {
       gpsStatus = 'FAILED';
-      // High jitter and dropout
       if (Math.random() < 0.4) {
         gpsAlt = null;
         gpsLat = null;
@@ -458,7 +636,7 @@ export class SimulationKernel {
         gpsAlt += (Math.random() - 0.5) * 250;
       }
     } else {
-      gpsAlt += (Math.random() - 0.5) * 1.5; // Normal GPS precision ~1.5m
+      gpsAlt += (Math.random() - 0.5) * 1.5;
     }
 
     // 5. TELEMETRY PACKET LOSS
@@ -472,7 +650,7 @@ export class SimulationKernel {
     }
 
     // Balloon & Rocket state parameters
-    const balloonState = this.balloon.getState(this.position.y, this.velocity, this.env);
+    const balloonState = this.balloon.getState(this.position.y, this.velocity, this.env, wind);
     const { thrustN } = this.rocket.computeThrust(atmo.P_pa);
 
     return {
@@ -481,18 +659,19 @@ export class SimulationKernel {
       isPacketDropped,
       barometric_sensor: {
         pressure_hpa: Number(measuredPressureHpa.toFixed(2)),
-        derived_altitude_m: Number(derivedBaroAlt.toFixed(1)),
         true_altitude_m: Number(trueAlt.toFixed(1)),
-        status: baroStatus
+        derived_altitude_m: Number(derivedBaroAlt.toFixed(1)),
+        status: baroStatus,
       },
       imu_sensor: {
         accel_mps2: imuAccel,
         gyro_dps: imuGyro,
         attitude_rpy_deg: attitudeRpy,
-        status: imuStatus
+        status: imuStatus,
       },
       environmental_sensors: {
         ambient_temp_c: Number(atmo.T_c.toFixed(1)),
+        ambient_pressure_hpa: Number(atmo.P_hpa.toFixed(2)),
         relative_humidity_pct: Number(atmo.humidityPct.toFixed(1)),
         effective_wind_vector_mps: [
           Number(wind.vx.toFixed(2)),
@@ -502,11 +681,21 @@ export class SimulationKernel {
       },
       payload_state: {
         is_attached: this.isTetherAttached,
+        is_balloon_burst: this.isBalloonBurst,
+        balloon_burst_reason: this.balloonBurstReason,
         balloon_volume_m3: Number(balloonState.currentVolumeM3.toFixed(1)),
+        envelope_stress_pct: balloonState.envelopeStressPct,
         thrust_n: Number(thrustN.toFixed(1)),
         rocket_status: this.rocket.status,
+        orbital_velocity_mps: Number(this.rocket.orbitalVelocityMps.toFixed(1)),
         propellant_kg: Number((this.rocket.currentStage1Propellant + this.rocket.currentStage2Propellant).toFixed(1)),
         total_mass_kg: Number((this.isTetherAttached ? balloonState.systemDeadMassKg + this.rocket.getMassKg() : this.rocket.getMassKg()).toFixed(1))
+      },
+      range_safety: {
+        safezone_radius_m: this.safezoneRadiusM,
+        current_drift_m: Number(this.currentDriftM.toFixed(1)),
+        is_inside_safezone: this.isInsideSafezone,
+        is_illegal_launch: !this.isInsideSafezone,
       },
       navigation_state: {
         gps_altitude_m: gpsAlt !== null ? Number(gpsAlt.toFixed(1)) : null,
@@ -526,8 +715,6 @@ export class SimulationKernel {
    */
   recordTelemetryRecord() {
     const reading = this.generateSensorReadings();
-    
-    // If telemetry link drops this packet, we don't save to downlink log buffer
     if (!reading.isPacketDropped) {
       this.telemetryBuffer.push(reading);
       if (this.telemetryBuffer.length > this.maxBufferSize) {

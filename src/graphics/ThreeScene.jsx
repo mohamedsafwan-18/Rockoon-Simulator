@@ -227,6 +227,36 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT })
     cloudDeck.position.set(0, 2800, 0);
     scene.add(cloudDeck);
 
+    // 4b. Designated Maritime / Airspace Safezone Boundary Ring (35 km radius = 350 visual units)
+    const safezoneGroup = new THREE.Group();
+    scene.add(safezoneGroup);
+
+    const safezoneRingGeo = new THREE.RingGeometry(346, 350, 72);
+    const safezoneMat = new THREE.MeshBasicMaterial({
+      color: 0x10b981,
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.55,
+    });
+    const safezoneMesh = new THREE.Mesh(safezoneRingGeo, safezoneMat);
+    safezoneMesh.rotation.x = -Math.PI / 2;
+    safezoneMesh.position.y = 0.5;
+    safezoneGroup.add(safezoneMesh);
+
+    // Glowing border edge line
+    const safezoneLineGeo = new THREE.BufferGeometry();
+    const safezonePts = [];
+    for (let i = 0; i <= 72; i++) {
+      const a = (i / 72) * Math.PI * 2;
+      safezonePts.push(new THREE.Vector3(348 * Math.cos(a), 0.8, 348 * Math.sin(a)));
+    }
+    safezoneLineGeo.setFromPoints(safezonePts);
+    const safezoneLine = new THREE.Line(
+      safezoneLineGeo,
+      new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.75 })
+    );
+    safezoneGroup.add(safezoneLine);
+
     // 5. TRANSLUCENT ZERO-PRESSURE BALLOON WITH VISIBLE VERTICAL GORES
     // (Matching reference photo: teardrop/pear envelope with fine vertical ribs and gathered appendix)
     const balloonGroup = new THREE.Group();
@@ -457,6 +487,22 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT })
     const plumePoints = new THREE.Points(plumeGeo, plumeMat);
     scene.add(plumePoints);
 
+    // 8b. Real-Time 3D Historical Flight Trajectory Line Trace
+    const maxTrajPoints = 3500;
+    const trajPositions = new Float32Array(maxTrajPoints * 3);
+    const trajGeo = new THREE.BufferGeometry();
+    trajGeo.setAttribute('position', new THREE.BufferAttribute(trajPositions, 3));
+    trajGeo.setDrawRange(0, 0);
+
+    const trajMat = new THREE.LineBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.90,
+      linewidth: 2.5,
+    });
+    const trajectoryLine = new THREE.Line(trajGeo, trajMat);
+    scene.add(trajectoryLine);
+
     // Save references
     objectsRef.current = {
       balloonGroup,
@@ -464,8 +510,12 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT })
       suspensionGroup,
       cableLines,
       rocketGroup,
+      clusterGroup,
       padGroup,
       beaconMesh,
+      safezoneGroup,
+      safezoneMesh,
+      trajectoryLine,
       plumePoints,
       plumePositions,
       starMat,
@@ -578,18 +628,72 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT })
       // At ground pad: rests on pedestal at y = 1.8 m visual altitude
       const visualRocketY = hasLaunched ? (altitude * 0.1) + 1.8 : 1.8;
 
+      // 2b. UPDATE SAFEZONE PERIMETER VISUAL
+      if (obj.safezoneMesh) {
+        if (!kernel.isInsideSafezone && kernel.hasLaunched) {
+          const tSec = performance.now() / 1000;
+          const blink = Math.sin(tSec * 6) > 0;
+          obj.safezoneMesh.material.color.setHex(blink ? 0xef4444 : 0x991b1b);
+          obj.safezoneMesh.material.opacity = 0.85;
+        } else {
+          obj.safezoneMesh.material.color.setHex(0x10b981);
+          obj.safezoneMesh.material.opacity = 0.50;
+        }
+      }
+
+      // 2c. UPDATE 3D TRAJECTORY LINE TRACE
+      if (obj.trajectoryLine && kernel.trajectoryPoints) {
+        const pts = kernel.trajectoryPoints;
+        const count = Math.min(pts.length, 3500);
+        const posAttr = obj.trajectoryLine.geometry.attributes.position;
+        const arr = posAttr.array;
+
+        for (let i = 0; i < count; i++) {
+          const pt = pts[i];
+          arr[i * 3] = pt.x * 0.01;
+          arr[i * 3 + 1] = (pt.y * 0.1) + 1.8;
+          arr[i * 3 + 2] = pt.z * 0.01;
+        }
+        posAttr.needsUpdate = true;
+        obj.trajectoryLine.geometry.setDrawRange(0, count);
+
+        if (kernel.rocket.status === 'LEO_ORBIT') {
+          obj.trajectoryLine.material.color.setHex(0xf59e0b); // Golden LEO orbit trace
+        } else if (kernel.isBalloonBurst || !kernel.isInsideSafezone) {
+          obj.trajectoryLine.material.color.setHex(0xf43f5e); // Violation / Rupture track
+        } else {
+          obj.trajectoryLine.material.color.setHex(0x38bdf8); // Nominal cyan track
+        }
+      }
+
+      // 2d. POSITION ROCKET MODEL & STAGING
       if (obj.rocketGroup) {
         obj.rocketGroup.position.set(kernel.position.x * 0.01, visualRocketY, kernel.position.z * 0.01);
+
+        // Stage 1 booster separation
+        if (obj.clusterGroup) {
+          obj.clusterGroup.visible = !kernel.rocket.isStage1Jettisoned;
+        }
 
         const pitchRad = ((kernel.rocket.attitudeRpyDeg.pitch - 90) * Math.PI) / 180;
         const rollRad = (kernel.rocket.attitudeRpyDeg.roll * Math.PI) / 180;
         const yawRad = (kernel.rocket.attitudeRpyDeg.yaw * Math.PI) / 180;
-        obj.rocketGroup.rotation.set(pitchRad, yawRad, rollRad);
+
+        // If in free-fall unpowered plunge, stream nose downward
+        if ((kernel.isBalloonBurst || (!isAttached && rocketStatus === 'RAIL_RELEASE')) && kernel.velocity.vy < -4.0) {
+          obj.rocketGroup.rotation.set(Math.PI, yawRad, 0);
+        } else {
+          obj.rocketGroup.rotation.set(pitchRad, yawRad, rollRad);
+        }
       }
 
       // 3. DYNAMIC ZERO-PRESSURE BALLOON EXPANSION & POSITION
       if (obj.balloonGroup) {
-        if (isAttached) {
+        if (kernel.isBalloonBurst) {
+          // Balloon has ruptured / burst: hide envelope and suspension cables
+          obj.balloonGroup.visible = false;
+          if (obj.suspensionGroup) obj.suspensionGroup.visible = false;
+        } else if (isAttached) {
           // Tether length: 14 units in visual 3D scale
           const tetherLengthVisual = 13.5;
           const balloonPosY = visualRocketY + tetherLengthVisual + 12;

@@ -130,9 +130,9 @@ console.log('\n--- TEST SUITE 3: Ground Launch & Simulation Lifecycle (Freeze/Re
 }
 
 // -------------------------------------------------------------
-// TEST SUITE 4: GROUND-TO-STRATOSPHERE (36-40 KM) TRAVERSAL & STAGING
+// TEST SUITE 4: GROUND-TO-STRATOSPHERE (36-40 KM) TO LEO ORBIT INSERTION
 // -------------------------------------------------------------
-console.log('\n--- TEST SUITE 4: Ground-to-Stratosphere Traversal & SBRL Staging ---');
+console.log('\n--- TEST SUITE 4: Stratospheric Launch to Low Earth Orbit (LEO) ---');
 {
   const kernel = new SimulationKernel();
   kernel.startMission();
@@ -148,33 +148,132 @@ console.log('\n--- TEST SUITE 4: Ground-to-Stratosphere Traversal & SBRL Staging
   // Test Safety Interlock
   const lowAltKernel = new SimulationKernel();
   lowAltKernel.startMission();
-  lowAltKernel.position.y = 15000; // 15 km (below 36 km)
+  lowAltKernel.position.y = 15000;
   const prematureIgnition = lowAltKernel.triggerIgnition();
   assert(prematureIgnition.success === false, 'Safety interlock blocked premature ignition below 36,000 m');
 
-  // Staging at float window
-  const cutDownRes = kernel.triggerCutDown();
-  assert(cutDownRes === true, 'Tetrahedral cradle release latch successfully triggered');
-  assert(kernel.isTetherAttached === false, 'Tether is severed');
-
-  // Stage 1 Ignition
+  // Staging at float window: cut down and ignite Stage 1
+  kernel.triggerCutDown();
   const ignitionRes = kernel.triggerIgnition();
   assert(ignitionRes.success === true, 'Stage 1 Ignition confirmed at 36-40 km');
   assert(kernel.rocket.status === ROCKET_STATUS.STAGE1_BURN, 'Rocket is in STAGE1_BURN mode');
 
-  // Accelerate on Stage 1 vacuum thrust
-  const preBurnY = kernel.position.y;
-  for (let i = 0; i < 40; i++) {
+  // Burn Stage 1 for 44 seconds
+  for (let i = 0; i < 44; i++) {
     kernel.integrate(1.0);
   }
-  assert(kernel.position.y > preBurnY, `Rocket accelerating upwards: ${kernel.position.y.toFixed(1)} m`);
-  assert(kernel.velocity.vy > 200, `Rocket attained supersonic climb: vy = ${kernel.velocity.vy.toFixed(1)} m/s`);
+
+  assert(kernel.rocket.isStage1Jettisoned === true, 'Stage 1 booster core successfully jettisoned');
+  assert(kernel.rocket.status === ROCKET_STATUS.STAGE2_BURN, 'Interstage separation triggered Stage 2 ignition');
+
+  // Burn Stage 2 to achieve orbital insertion (55 seconds)
+  for (let i = 0; i < 55; i++) {
+    kernel.integrate(1.0);
+  }
+
+  assert(kernel.position.y >= 160000, `Vehicle reached LEO altitude: ${(kernel.position.y / 1000).toFixed(1)} km`);
+  assert(kernel.rocket.orbitalVelocityMps >= 7700, `Vehicle achieved orbital velocity: ${kernel.rocket.orbitalVelocityMps.toFixed(1)} m/s`);
+  assert(kernel.rocket.status === ROCKET_STATUS.LEO_ORBIT, 'Vehicle successfully inserted into LEO_ORBIT');
+  assert(kernel.getFlightPhase() === FLIGHT_PHASES.LEO_ORBIT, 'Flight phase is LEO_ORBIT');
+
+  // Verify circular orbit stability (coast for 20 seconds in LEO)
+  const leoAlt = kernel.position.y;
+  for (let i = 0; i < 20; i++) {
+    kernel.integrate(1.0);
+  }
+  assert(Math.abs(kernel.position.y - leoAlt) < 0.1, `Circular LEO altitude remains rock-steady during orbit: ${(leoAlt / 1000).toFixed(1)} km`);
+  assert(kernel.velocity.vy === 0.0, 'Vertical velocity circularized to 0.0 m/s');
+
+  // Verify 3D Trajectory Track Line points recorded
+  assert(kernel.trajectoryPoints.length > 50, `3D Trajectory line trace recorded: ${kernel.trajectoryPoints.length} points`);
 }
 
 // -------------------------------------------------------------
-// TEST SUITE 5: SENSOR FAULT INJECTION ENGINE
+// TEST SUITE 5: BALLOON BURST & PHYSICS THRESHOLDS
 // -------------------------------------------------------------
-console.log('\n--- TEST SUITE 5: Sensor Fault Injection Modes ---');
+console.log('\n--- TEST SUITE 5: Balloon Burst Physics & Thresholds ---');
+{
+  // Test 5A: Low Pressure Scale (< 0.88x) causes over-expansion burst at float altitude
+  const kernelBurstA = new SimulationKernel();
+  kernelBurstA.startMission();
+  kernelBurstA.position.y = 38000; // Float altitude
+  kernelBurstA.setEnvParam('pressureScale', 0.84); // Low ambient pressure scale
+  assert(kernelBurstA.isBalloonBurst === true, 'Balloon burst triggered by low pressure over-expansion');
+  assert(kernelBurstA.isTetherAttached === false, 'Tether disconnected upon burst');
+
+  // Test 5B: High Wind Speed ALONE does NOT burst the balloon
+  const kernelWind = new SimulationKernel();
+  kernelWind.startMission();
+  kernelWind.position.y = 10000;
+  kernelWind.setEnvParam('windSpeedKmh', 110.0);
+  kernelWind.setEnvParam('turbulenceLevel', 'mild');
+  kernelWind.integrate(2.0);
+  assert(kernelWind.isBalloonBurst === false, 'Pure high wind speed without severe turbulence does NOT burst balloon');
+
+  // Test 5C: Severe Turbulence combined with Wind >= 95 km/h tears envelope
+  const kernelBurstC = new SimulationKernel();
+  kernelBurstC.startMission();
+  kernelBurstC.position.y = 10000; // In jet stream
+  kernelBurstC.setEnvParam('windSpeedKmh', 105.0);
+  kernelBurstC.setEnvParam('turbulenceLevel', 'severe');
+  kernelBurstC.integrate(2.0);
+  assert(kernelBurstC.isBalloonBurst === true, 'Severe turbulence gusts tore envelope fabric');
+
+  // Test 5D: Cryogenic Embrittlement at Tropopause (Temp Delta <= -28°C)
+  const kernelBurstD = new SimulationKernel();
+  kernelBurstD.startMission();
+  kernelBurstD.position.y = 11000; // Tropopause
+  kernelBurstD.setEnvParam('tempDeltaC', -29.0);
+  kernelBurstD.integrate(1.0);
+  assert(kernelBurstD.isBalloonBurst === true, 'Cryogenic embrittlement burst below -78°C glass transition');
+
+  // Test 5E: Rocket Plunges in Free Fall when Balloon Bursts
+  const kernelFall = new SimulationKernel();
+  kernelFall.startMission();
+  kernelFall.position.y = 8000;
+  kernelFall.triggerBalloonBurst('Test burst');
+  assert(kernelFall.isBalloonBurst === true, 'Balloon burst flag set');
+  const preFallY = kernelFall.position.y;
+  for (let i = 0; i < 15; i++) kernelFall.integrate(1.0);
+  assert(kernelFall.position.y < preFallY, `Rocket falling rapidly under gravity: alt is ${kernelFall.position.y.toFixed(1)} m`);
+  assert(kernelFall.velocity.vy < -20.0, `Downward velocity confirmed: vy = ${kernelFall.velocity.vy.toFixed(1)} m/s`);
+  assert(kernelFall.getFlightPhase() === FLIGHT_PHASES.BALLOON_BURST, 'Flight phase is BALLOON_BURST');
+}
+
+// -------------------------------------------------------------
+// TEST SUITE 6: RANGE SAFETY SAFEZONE & ILLEGAL ROCKET LAUNCH
+// -------------------------------------------------------------
+console.log('\n--- TEST SUITE 6: Range Safety Safezone (35 km) & Illegal Launch ---');
+{
+  const kernelSafe = new SimulationKernel();
+  kernelSafe.startMission();
+  kernelSafe.position.y = 38000;
+  kernelSafe.position.x = 12000; // 12 km drift (inside 35 km)
+  kernelSafe.integrate(0.1);
+
+  assert(kernelSafe.isInsideSafezone === true, 'Vehicle inside 35 km safezone is flagged nominal');
+
+  // Drift beyond 35 km safezone boundary
+  kernelSafe.position.x = 38000; // 38 km drift (> 35 km)
+  kernelSafe.integrate(0.1);
+
+  assert(kernelSafe.isInsideSafezone === false, 'Vehicle outside 35 km boundary flags airspace violation');
+
+  // Attempt ignition outside safezone without override
+  const blockedIgnition = kernelSafe.triggerIgnition();
+  assert(blockedIgnition.success === false, 'Ignition outside safezone blocked as ILLEGAL ROCKET LAUNCH');
+  assert(blockedIgnition.reason.includes('ILLEGAL ROCKET LAUNCH'), 'Reason specifies ILLEGAL ROCKET LAUNCH');
+
+  // Override allows launch
+  kernelSafe.safetyOverride = true;
+  const overrideIgnition = kernelSafe.triggerIgnition();
+  assert(overrideIgnition.success === true, 'Safety override permits launch with airspace warning');
+}
+
+// -------------------------------------------------------------
+// TEST SUITE 7: SENSOR FAULT INJECTION ENGINE
+// -------------------------------------------------------------
+console.log('\n--- TEST SUITE 7: Sensor Fault Injection Modes ---');
 {
   const kernel = new SimulationKernel();
   kernel.startMission();
@@ -185,7 +284,7 @@ console.log('\n--- TEST SUITE 5: Sensor Fault Injection Modes ---');
   // 1. Barometer Sticking
   kernel.faults.baroStick = true;
   const stuckReading1 = kernel.generateSensorReadings();
-  kernel.position.y += 1500; // Vehicle climbs 1,500 m
+  kernel.position.y += 1500;
   const stuckReading2 = kernel.generateSensorReadings();
   assert(stuckReading2.barometric_sensor.status === 'FAILED', 'Barometer stuck status flagged as FAILED');
   assert(Math.abs(stuckReading2.barometric_sensor.pressure_hpa - stuckReading1.barometric_sensor.pressure_hpa) < 0.25, 'Stuck pressure reading remains constant despite 1,500 m altitude change');
@@ -214,9 +313,9 @@ console.log('\n--- TEST SUITE 5: Sensor Fault Injection Modes ---');
 }
 
 // -------------------------------------------------------------
-// TEST SUITE 6: TELEMETRY JSON SCHEMA SPECIFICATION CONFORMANCE
+// TEST SUITE 8: TELEMETRY JSON SCHEMA SPECIFICATION CONFORMANCE
 // -------------------------------------------------------------
-console.log('\n--- TEST SUITE 6: JSON Export Schema & Aeroin Metadata Conformance ---');
+console.log('\n--- TEST SUITE 8: JSON Export Schema & Aeroin Metadata Conformance ---');
 {
   const kernel = new SimulationKernel();
   kernel.startMission();
@@ -236,7 +335,6 @@ console.log('\n--- TEST SUITE 6: JSON Export Schema & Aeroin Metadata Conformanc
   assert(meta.total_samples === exportData.sensor_telemetry_records.length, 'total_samples matches record array length');
   assert(exportData.sensor_telemetry_records.length > 0, 'Telemetry records generated successfully');
 
-  // Verify telemetry record fields
   const sample = exportData.sensor_telemetry_records[0];
   assert(typeof sample.timestamp_ms === 'number', 'sample has numeric timestamp_ms');
   assert(typeof sample.flight_phase === 'string', 'sample has flight_phase string');

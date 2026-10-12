@@ -32,11 +32,16 @@ export function VirtualLabsHeader({
   };
 
   const getPhaseBadge = (p) => {
+    if (p === 'LEO_ORBIT') return 'bg-amber-500/30 text-amber-300 border-amber-400 font-bold shadow-lg animate-pulse';
+    if (p.includes('BURST') || p.includes('IMPACT') || p.includes('FREE_FALL')) return 'bg-rose-600/40 text-rose-200 border-rose-500 animate-pulse font-bold';
     if (p.includes('STAGE') || p.includes('IGNITION')) return 'bg-rose-600/30 text-rose-300 border-rose-500/50';
     if (p.includes('STRATO') || p.includes('FLOAT') || p.includes('RELEASE')) return 'bg-sky-600/30 text-sky-300 border-sky-500/50';
     if (p.includes('JET')) return 'bg-amber-600/30 text-amber-300 border-amber-500/50';
     return 'bg-emerald-600/30 text-emerald-300 border-emerald-500/50';
   };
+
+  const isSafezoneViolated = !telemetry?.range_safety?.is_inside_safezone && phase !== 'PRELAUNCH' && phase !== 'LEO_ORBIT';
+  const isBurst = telemetry?.payload_state?.is_balloon_burst;
 
   return (
     <header className="h-14 border-b border-slate-800 bg-slate-900/90 backdrop-blur-md px-4 flex items-center justify-between z-30 select-none shadow-md">
@@ -61,6 +66,20 @@ export function VirtualLabsHeader({
         <div className={`px-2.5 py-0.5 rounded-full border text-[11px] font-mono font-bold tracking-wider ${getPhaseBadge(phase)}`}>
           {phase}
         </div>
+
+        {/* Airspace Safezone Warning Flag */}
+        {isSafezoneViolated && (
+          <div className="hidden sm:flex items-center px-2 py-0.5 rounded-full bg-rose-600/30 border border-rose-500 text-rose-300 text-[10px] font-mono font-bold animate-pulse">
+            <span>⚠️ ILLEGAL LAUNCH (AIRSPACE VIOLATION)</span>
+          </div>
+        )}
+
+        {/* Balloon Burst Warning Flag */}
+        {isBurst && (
+          <div className="hidden sm:flex items-center px-2 py-0.5 rounded-full bg-rose-600/30 border border-rose-500 text-rose-300 text-[10px] font-mono font-bold animate-pulse">
+            <span>💥 ENVELOPE BURST</span>
+          </div>
+        )}
       </div>
 
       {/* Center: Mission Elapsed Time & Subsystem Health Badges */}

@@ -187,12 +187,14 @@ export function FlightControlBar({
           <span>Release Latch</span>
         </button>
 
-        {/* Manual Rocket Ignition Trigger */}
+        {/* Manual Rocket Ignition / Staging Trigger */}
         <button
           onClick={handleIgnition}
-          disabled={!hasLaunched || rocketStatus.includes('STAGE') || rocketStatus === 'COAST'}
+          disabled={!hasLaunched || rocketStatus.includes('STAGE') || rocketStatus === 'COAST' || rocketStatus === 'LEO_ORBIT'}
           className={`px-3.5 py-1.5 rounded-xl border text-xs font-mono font-bold flex items-center space-x-1.5 transition-all shadow-md ${
-            rocketStatus.includes('STAGE')
+            rocketStatus === 'LEO_ORBIT'
+              ? 'bg-amber-500/20 text-amber-300 border-amber-400 font-bold'
+              : rocketStatus.includes('STAGE')
               ? 'bg-rose-600/30 text-rose-400 border-rose-500/30 cursor-not-allowed'
               : isAboveSafety && hasLaunched
               ? 'bg-rose-600 hover:bg-rose-500 text-white border-rose-400 active:scale-95 animate-pulse'
@@ -201,13 +203,23 @@ export function FlightControlBar({
           title={
             !hasLaunched
               ? 'Mission must be launched from pad first'
+              : rocketStatus === 'LEO_ORBIT'
+              ? 'Vehicle in stable Low Earth Orbit (LEO)'
               : !isAboveSafety
               ? 'Ignition Locked: Vehicle must reach 36,000m release window (or engage safety override)'
               : 'Ignite SBRL Stage 1 Vacuum Burn'
           }
         >
           <Flame className="w-4 h-4 fill-current" />
-          <span>Stage 1 Ignition</span>
+          <span>
+            {rocketStatus === 'LEO_ORBIT'
+              ? '🛰️ In LEO Orbit'
+              : rocketStatus === 'STAGE1_BURN'
+              ? 'Stage 1 Firing'
+              : rocketStatus === 'STAGE2_BURN'
+              ? 'Stage 2 Firing'
+              : 'Stage 1 Ignition'}
+          </span>
         </button>
       </div>
 

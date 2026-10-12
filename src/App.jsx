@@ -125,6 +125,27 @@ export function App() {
               </button>
             </div>
 
+            {/* Balloon Burst Alert */}
+            {kernel.isBalloonBurst && (
+              <div className="py-1 px-2 rounded bg-rose-950/80 border border-rose-500 text-rose-300 text-[10px] font-bold animate-pulse">
+                💥 ENVELOPE BURST: FREE FALL
+              </div>
+            )}
+
+            {/* Safezone Airspace Violation Alert */}
+            {!kernel.isInsideSafezone && kernel.hasLaunched && kernel.rocket.status !== 'LEO_ORBIT' && (
+              <div className="py-1 px-2 rounded bg-rose-950/80 border border-rose-500 text-rose-300 text-[10px] font-bold animate-pulse">
+                ⚠️ AIRSPACE SAFEZONE VIOLATED (Drift: {(kernel.currentDriftM / 1000).toFixed(1)} km)
+              </div>
+            )}
+
+            {/* In Orbit Badge */}
+            {kernel.rocket.status === 'LEO_ORBIT' && (
+              <div className="py-1 px-2 rounded bg-amber-950/80 border border-amber-400 text-amber-300 text-[10px] font-bold shadow-lg animate-pulse">
+                🛰️ LOW EARTH ORBIT (LEO) INSERTION CONFIRMED
+              </div>
+            )}
+
             {/* Altitude & Variometer */}
             <div className="flex justify-between items-baseline">
               <span className="text-slate-400 text-[11px]">Altitude:</span>
@@ -134,13 +155,22 @@ export function App() {
               </span>
             </div>
 
-            {/* Climb Rate */}
-            <div className="flex justify-between items-baseline">
-              <span className="text-slate-400 text-[11px]">Climb Rate:</span>
-              <span className={`text-xs font-bold tabular-nums ${climbRate >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {climbRate >= 0 ? '+' : ''}{climbRate.toFixed(1)} <span className="text-[10px] font-normal text-slate-400">m/s</span>
-              </span>
-            </div>
+            {/* Climb Rate / Orbital Speed */}
+            {kernel.rocket.status === 'LEO_ORBIT' ? (
+              <div className="flex justify-between items-baseline">
+                <span className="text-slate-400 text-[11px]">Orbital Speed:</span>
+                <span className="text-xs font-bold text-amber-400 tabular-nums">
+                  {Math.round(kernel.rocket.orbitalVelocityMps)} <span className="text-[10px] font-normal text-slate-400">m/s (Mach 26)</span>
+                </span>
+              </div>
+            ) : (
+              <div className="flex justify-between items-baseline">
+                <span className="text-slate-400 text-[11px]">Climb Rate:</span>
+                <span className={`text-xs font-bold tabular-nums ${climbRate >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {climbRate >= 0 ? '+' : ''}{climbRate.toFixed(1)} <span className="text-[10px] font-normal text-slate-400">m/s</span>
+                </span>
+              </div>
+            )}
 
             {/* Airspeed */}
             <div className="flex justify-between items-baseline">

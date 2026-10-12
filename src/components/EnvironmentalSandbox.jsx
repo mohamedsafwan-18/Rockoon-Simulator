@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sliders, Wind, Thermometer, Droplets, Gauge, AlertTriangle, ChevronDown, ChevronUp, RotateCcw, Zap } from 'lucide-react';
+import { Sliders, Wind, Thermometer, Droplets, Gauge, AlertTriangle, ChevronDown, ChevronUp, RotateCcw, Zap, ShieldAlert, ShieldCheck, Flame, Skull } from 'lucide-react';
 
 export function EnvironmentalSandbox({ kernel, onUpdate }) {
   const [isOpen, setIsOpen] = useState(true);
@@ -22,7 +22,30 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
     onUpdate();
   };
 
+  const handleManualBurst = () => {
+    kernel.triggerBalloonBurst('MANUAL BURST TEST: Envelope punctured via Sandbox operator command.');
+    onUpdate();
+  };
+
+  const handleRepairEnvelope = () => {
+    kernel.isBalloonBurst = false;
+    kernel.balloonBurstReason = null;
+    kernel.balloon.isBurst = false;
+    kernel.balloon.isCutDown = false;
+    kernel.isTetherAttached = true;
+    onUpdate();
+  };
+
   const activeFaultCount = Object.values(faults).filter(Boolean).length;
+  const driftKm = (kernel.currentDriftM / 1000).toFixed(1);
+  const safezoneRadiusKm = (kernel.safezoneRadiusM / 1000).toFixed(0);
+  const isInside = kernel.isInsideSafezone;
+  const isBurst = kernel.isBalloonBurst;
+
+  // Calculate current envelope stress percentage
+  const atmo = kernel.generateSensorReadings()?.environmental_sensors;
+  const theoreticalVol = kernel.balloon?.getState(kernel.position.y, kernel.velocity, env)?.theoreticalVolumeM3 || 4200;
+  const envelopeStressPct = Math.min(100, Math.round((theoreticalVol / kernel.balloon.burstVolumeLimitM3) * 100));
 
   return (
     <div className="bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl overflow-hidden shadow-2xl transition-all">
@@ -57,18 +80,96 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
       </div>
 
       {isOpen && (
-        <div className="p-4 space-y-5 text-xs text-slate-300 max-h-[calc(100vh-240px)] overflow-y-auto custom-scrollbar">
-          {/* SECTION 1: ENVIRONMENTAL VARIABLES */}
-          <div>
-            <div className="text-[11px] font-mono font-bold tracking-wider text-sky-400 uppercase mb-3 flex items-center justify-between">
-              <span>1. Atmospheric & Wind Environment</span>
-              <span className="text-[10px] text-slate-400 font-normal">ISA Profile Modifiers</span>
+        <div className="p-4 space-y-4 text-xs text-slate-300 max-h-[calc(100vh-240px)] overflow-y-auto custom-scrollbar">
+          
+          {/* RANGE SAFETY & BALLOON ENVELOPE REAL-TIME GAUGES */}
+          <div className="space-y-2.5">
+            {/* SAFEZONE STATUS CARD */}
+            <div className={`p-2.5 rounded-xl border flex flex-col space-y-1.5 transition-all ${
+              isInside
+                ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-300'
+                : 'bg-rose-950/40 border-rose-500/60 text-rose-300 animate-pulse'
+            }`}>
+              <div className="flex items-center justify-between font-mono text-[11px] font-bold">
+                <span className="flex items-center gap-1.5">
+                  {isInside ? <ShieldCheck className="w-4 h-4 text-emerald-400" /> : <ShieldAlert className="w-4 h-4 text-rose-400" />}
+                  <span>{isInside ? 'AIRSPACE STATUS: APPROVED SAFEZONE' : 'ILLEGAL LAUNCH: AIRSPACE CORRIDOR VIOLATED!'}</span>
+                </span>
+                <span>{driftKm} / {safezoneRadiusKm} km</span>
+              </div>
+              <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
+                <div 
+                  className={`h-full transition-all ${isInside ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                  style={{ width: `${Math.min(100, (kernel.currentDriftM / kernel.safezoneRadiusM) * 100)}%` }}
+                />
+              </div>
+              <div className="text-[10px] text-slate-400 font-sans">
+                {isInside 
+                  ? `Vehicle is within ${safezoneRadiusKm} km approved maritime range safety perimeter.`
+                  : `⚠️ Airspace safety corridor exceeded! Rocket launch outside safezone is illegal and interlocked.`
+                }
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            {/* BALLOON STRUCTURAL INTEGRITY & BURST ALERT */}
+            {isBurst ? (
+              <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-500/80 text-rose-200 flex flex-col space-y-2 shadow-lg">
+                <div className="flex items-center justify-between font-mono font-bold text-xs text-rose-300">
+                  <span className="flex items-center gap-1.5">
+                    <Skull className="w-4 h-4 text-rose-400 animate-bounce" />
+                    <span>ENVELOPE RUPTURED / BURST!</span>
+                  </span>
+                  <span className="text-[10px] bg-rose-900/60 px-2 py-0.5 rounded text-rose-300">ROCKET IN FREE FALL</span>
+                </div>
+                <p className="text-[11px] leading-relaxed text-slate-300 font-sans">
+                  {kernel.balloonBurstReason || 'Envelope structural stress limit exceeded. Buoyancy lost; vehicle falling under gravity.'}
+                </p>
+                <button
+                  onClick={handleRepairEnvelope}
+                  className="w-full py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-mono text-[11px] font-bold shadow transition-all active:scale-98"
+                >
+                  Replace & Re-inflate Balloon Envelope
+                </button>
+              </div>
+            ) : (
+              <div className="p-2.5 rounded-xl bg-slate-950/70 border border-slate-800 flex flex-col space-y-1.5">
+                <div className="flex items-center justify-between font-mono text-[11px]">
+                  <span className="text-slate-300">Envelope Hoop Stress:</span>
+                  <span className={`font-bold tabular-nums ${envelopeStressPct > 85 ? 'text-rose-400 animate-pulse' : envelopeStressPct > 65 ? 'text-amber-400' : 'text-sky-300'}`}>
+                    {envelopeStressPct}% of 920,000 m³ Burst Limit
+                  </span>
+                </div>
+                <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
+                  <div 
+                    className={`h-full transition-all ${envelopeStressPct > 85 ? 'bg-rose-500' : envelopeStressPct > 65 ? 'bg-amber-400' : 'bg-sky-500'}`}
+                    style={{ width: `${envelopeStressPct}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-[10px] text-slate-400">Rupture margin: {(100 - envelopeStressPct)}%</span>
+                  <button
+                    onClick={handleManualBurst}
+                    className="text-[10px] font-mono text-rose-400 hover:text-rose-300 underline"
+                    title="Simulate immediate envelope structural failure"
+                  >
+                    Test Burst
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* SECTION 1: ENVIRONMENTAL VARIABLES */}
+          <div>
+            <div className="text-[11px] font-mono font-bold tracking-wider text-sky-400 uppercase mb-2.5 flex items-center justify-between">
+              <span>1. Atmospheric & Wind Controls</span>
+              <span className="text-[10px] text-slate-400 font-normal">Physical Stress Drivers</span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Wind Speed */}
               <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center justify-between mb-1">
                   <span className="flex items-center gap-1.5 text-slate-300">
                     <Wind className="w-3.5 h-3.5 text-cyan-400" />
                     <span>Wind Speed</span>
@@ -84,15 +185,15 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
                   onChange={(e) => handleEnvChange('windSpeedKmh', parseFloat(e.target.value))}
                   className="w-full accent-cyan-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
                 />
-                <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
-                  <span>0 km/h (Calm)</span>
-                  <span>Jet Stream (&gt;100)</span>
+                <div className="text-[9px] text-slate-400 font-mono mt-1 flex justify-between">
+                  <span>Drifts toward Safezone border</span>
+                  <span className="text-cyan-400">{env.windSpeedKmh >= 95 ? 'High Wind' : 'Nominal'}</span>
                 </div>
               </div>
 
               {/* Wind Direction */}
               <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center justify-between mb-1">
                   <span className="flex items-center gap-1.5 text-slate-300">
                     <Wind className="w-3.5 h-3.5 text-indigo-400" />
                     <span>Wind Bearing</span>
@@ -117,14 +218,14 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
 
               {/* Turbulence Intensity */}
               <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center justify-between mb-1">
                   <span className="flex items-center gap-1.5 text-slate-300">
                     <Zap className="w-3.5 h-3.5 text-amber-400" />
                     <span>Turbulence / Shear</span>
                   </span>
                   <span className="font-mono text-amber-300 uppercase font-bold text-[10px]">{env.turbulenceLevel}</span>
                 </div>
-                <div className="grid grid-cols-3 gap-1.5 mt-1">
+                <div className="grid grid-cols-3 gap-1 mt-1">
                   {['calm', 'mild', 'severe'].map((lvl) => (
                     <button
                       key={lvl}
@@ -139,11 +240,14 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
                     </button>
                   ))}
                 </div>
+                <div className="text-[9px] text-slate-400 font-mono mt-1">
+                  <span className="text-amber-400">Severe + ≥95 km/h tears envelope!</span>
+                </div>
               </div>
 
               {/* Ambient Temperature Delta */}
               <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center justify-between mb-1">
                   <span className="flex items-center gap-1.5 text-slate-300">
                     <Thermometer className="w-3.5 h-3.5 text-rose-400" />
                     <span>Temp Delta ΔT</span>
@@ -162,14 +266,14 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
                   className="w-full accent-rose-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
                 />
                 <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
-                  <span>-30°C (Cold Day)</span>
-                  <span>+30°C (Hot Day)</span>
+                  <span className="text-rose-400">≤-28°C: Embrittlement</span>
+                  <span>+30°C Hot</span>
                 </div>
               </div>
 
-              {/* Relative Humidity */}
+              {/* Surface Humidity */}
               <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center justify-between mb-1">
                   <span className="flex items-center gap-1.5 text-slate-300">
                     <Droplets className="w-3.5 h-3.5 text-blue-400" />
                     <span>Surface Humidity</span>
@@ -186,14 +290,14 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
                   className="w-full accent-blue-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
                 />
                 <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
-                  <span>0% (Dry Desert)</span>
-                  <span>100% (Saturated)</span>
+                  <span>0% Dry</span>
+                  <span>100% Saturation</span>
                 </div>
               </div>
 
               {/* Atmospheric Pressure Scale */}
               <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
-                <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center justify-between mb-1">
                   <span className="flex items-center gap-1.5 text-slate-300">
                     <Gauge className="w-3.5 h-3.5 text-emerald-400" />
                     <span>Pressure Scale</span>
@@ -210,9 +314,8 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
                   className="w-full accent-emerald-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
                 />
                 <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
-                  <span>0.80x (Low System)</span>
-                  <span>1.0x</span>
-                  <span>1.20x (High)</span>
+                  <span className="text-rose-400">&lt;0.88x Over-expands</span>
+                  <span>1.20x High P</span>
                 </div>
               </div>
             </div>
@@ -220,7 +323,7 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
 
           {/* SECTION 2: SENSOR FAULT INJECTION */}
           <div className="pt-2 border-t border-slate-800">
-            <div className="text-[11px] font-mono font-bold tracking-wider text-rose-400 uppercase mb-3 flex items-center justify-between">
+            <div className="text-[11px] font-mono font-bold tracking-wider text-rose-400 uppercase mb-2.5 flex items-center justify-between">
               <span className="flex items-center gap-1.5">
                 <AlertTriangle className="w-3.5 h-3.5" />
                 <span>2. Sensor Fault & Failure Mode Injection</span>
@@ -254,10 +357,10 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
               }`}>
                 <div>
                   <div className="font-semibold text-xs flex items-center gap-1.5">
-                    <span>Barometer Random Walk Drift</span>
+                    <span>Barometer Drift</span>
                     {faults.baroDriftActive && <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />}
                   </div>
-                  <div className="text-[10px] text-slate-400">Simulates diaphragm creep error</div>
+                  <div className="text-[10px] text-slate-400">Simulates calibration random walk</div>
                 </div>
                 <input
                   type="checkbox"
@@ -267,16 +370,16 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
                 />
               </label>
 
-              {/* IMU Noise & Gyro Spike */}
+              {/* IMU Noise */}
               <label className={`p-2.5 rounded-lg border flex items-center justify-between cursor-pointer transition-all ${
                 faults.imuNoise ? 'bg-rose-950/40 border-rose-500/60 text-rose-200' : 'bg-slate-950/50 border-slate-800 hover:border-slate-700'
               }`}>
                 <div>
                   <div className="font-semibold text-xs flex items-center gap-1.5">
-                    <span>IMU Noise / Gyro Bias Spike</span>
+                    <span>IMU Gyro Bias Spike</span>
                     {faults.imuNoise && <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />}
                   </div>
-                  <div className="text-[10px] text-slate-400">Random walk in pitch/roll/yaw rates</div>
+                  <div className="text-[10px] text-slate-400">High variance & attitude jitter</div>
                 </div>
                 <input
                   type="checkbox"
@@ -292,10 +395,10 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
               }`}>
                 <div>
                   <div className="font-semibold text-xs flex items-center gap-1.5">
-                    <span>Pitot / Airspeed Tube Icing</span>
+                    <span>Pitot / Airspeed Icing</span>
                     {faults.pitotIcing && <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />}
                   </div>
-                  <div className="text-[10px] text-slate-400">Clogs airspeed sensor to ~0 m/s</div>
+                  <div className="text-[10px] text-slate-400">Clogs dynamic pressure to near-zero</div>
                 </div>
                 <input
                   type="checkbox"
@@ -311,10 +414,10 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
               }`}>
                 <div>
                   <div className="font-semibold text-xs flex items-center gap-1.5">
-                    <span>GPS Lock Loss / Dropouts</span>
+                    <span>GPS Lock Loss</span>
                     {faults.gpsLoss && <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />}
                   </div>
-                  <div className="text-[10px] text-slate-400">Injects null fixes & position jitter</div>
+                  <div className="text-[10px] text-slate-400">Simulates dropouts and null fixes</div>
                 </div>
                 <input
                   type="checkbox"
@@ -330,10 +433,10 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
               }`}>
                 <div>
                   <div className="font-semibold text-xs flex items-center gap-1.5">
-                    <span>Telemetry Packet Loss</span>
+                    <span>Telemetry Packet Drop</span>
                     {faults.telemetryDrop && <span className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-ping" />}
                   </div>
-                  <div className="text-[10px] text-slate-400">Simulates RF link frame dropouts</div>
+                  <div className="text-[10px] text-slate-400">Simulates RF link fading and loss</div>
                 </div>
                 <input
                   type="checkbox"
