@@ -17,6 +17,7 @@ export function App() {
     serverIp: '172.16.59.95',
     port: 65432,
     intervalMs: 500,
+    isPinging: true,
     totalPingsSent: 0,
     status: 'PINGING_0.5S',
   });
@@ -25,6 +26,65 @@ export function App() {
   const forceUpdate = useCallback(() => {
     setForceTick(t => t + 1);
   }, []);
+
+  const handleStopPing = useCallback(async () => {
+    kernel.stopPinging();
+    setTcpStatus(prev => ({
+      ...prev,
+      isPinging: false,
+      status: 'PING_STOPPED',
+    }));
+    setTelemetry(kernel.generateSensorReadings());
+    forceUpdate();
+    try {
+      const res = await fetch('/api/tcp-ping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stop' }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.tcpStats) setTcpStatus(data.tcpStats);
+      }
+    } catch {
+      // ignore if static build
+    }
+  }, [kernel, forceUpdate]);
+
+  const handleStartPing = useCallback(async () => {
+    kernel.startPinging();
+    setTcpStatus(prev => ({
+      ...prev,
+      isPinging: true,
+      status: 'PINGING_0.5S',
+    }));
+    setTelemetry(kernel.generateSensorReadings());
+    forceUpdate();
+    try {
+      const res = await fetch('/api/tcp-ping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'start',
+          payload: kernel.getSocketPayload(),
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.tcpStats) setTcpStatus(data.tcpStats);
+      }
+    } catch {
+      // ignore if static build
+    }
+  }, [kernel, forceUpdate]);
+
+  const handleTogglePing = useCallback(() => {
+    if (kernel.isPinging) {
+      handleStopPing();
+    } else {
+      handleStartPing();
+    }
+  }, [kernel, handleStopPing, handleStartPing]);
 
   // Main high-frequency simulation integration loop
   useEffect(() => {
@@ -58,11 +118,12 @@ export function App() {
     return () => cancelAnimationFrame(animId);
   }, [kernel]);
 
-  // Uninterrupted 0.5-second (500 ms) TCP Socket JSON Pinger to 172.16.59.95:65432
+  // 0.5-second (500 ms) TCP Socket JSON Pinger to 172.16.59.95:65432 (active while kernel.isPinging is true)
   useEffect(() => {
     let isMounted = true;
 
     const pingSocketServer = async () => {
+      if (!kernel.isPinging) return;
       const socketPacket = kernel.getSocketPayload();
       try {
         const res = await fetch('/api/tcp-ping', {
@@ -70,7 +131,7 @@ export function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(socketPacket),
         });
-        if (res.ok && isMounted) {
+        if (res.ok && isMounted && kernel.isPinging) {
           const data = await res.json();
           if (data?.tcpStats) {
             setTcpStatus(data.tcpStats);
@@ -78,9 +139,10 @@ export function App() {
         }
       } catch {
         // Keep local ping counter incrementing if running from static build without Vite middleware
-        if (isMounted) {
+        if (isMounted && kernel.isPinging) {
           setTcpStatus(prev => ({
             ...prev,
+            isPinging: true,
             totalPingsSent: (prev.totalPingsSent || 0) + 1,
             lastPingIso: new Date().toISOString(),
             status: 'PINGING_0.5S',
@@ -89,7 +151,7 @@ export function App() {
       }
     };
 
-    // Fire immediately and then every 500 ms (0.5 seconds) without interruption
+    // Fire immediately and then every 500 ms (0.5 seconds) while pinging is active
     pingSocketServer();
     const intervalId = setInterval(pingSocketServer, 500);
     return () => {
@@ -99,7 +161,8 @@ export function App() {
   }, [kernel]);
 
   const handleReset = () => {
-    kernel.reset();
+    kernel.reset(); // Automatically sets kernel.isPinging = false
+    handleStopPing(); // Immediately halts 0.5s TCP socket pinging on Restart
     setTelemetry(kernel.generateSensorReadings());
     forceUpdate();
   };
@@ -140,6 +203,8 @@ export function App() {
         isDrawerOpen={isDrawerOpen}
         activeFaultCount={activeFaultCount}
         tcpStatus={tcpStatus}
+        isPinging={kernel.isPinging}
+        onTogglePing={handleTogglePing}
       />
 
       {/* 2. FULLSCREEN 3D SIMULATOR VIEWPORT */}
@@ -281,6 +346,10 @@ export function App() {
           onExportJson={handleExportJson}
           onUpdate={forceUpdate}
           tcpStatus={tcpStatus}
+          isPinging={kernel.isPinging}
+          onStartPing={handleStartPing}
+          onStopPing={handleStopPing}
+          onTogglePing={handleTogglePing}
         />
 
         {/* 5. FLOATING BOTTOM MISSION CONTROL DECK */}
@@ -291,6 +360,10 @@ export function App() {
             setCameraMode={setCameraMode}
             onReset={handleReset}
             onUpdate={forceUpdate}
+            isPinging={kernel.isPinging}
+            onStartPing={handleStartPing}
+            onStopPing={handleStopPing}
+            onTogglePing={handleTogglePing}
           />
         </div>
       </div>

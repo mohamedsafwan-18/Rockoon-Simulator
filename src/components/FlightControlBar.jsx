@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Play, Pause, RotateCcw, Flame, Scissors, ShieldAlert, Video, ShieldCheck } from 'lucide-react';
+import { Play, Pause, RotateCcw, Flame, Scissors, ShieldAlert, Video, ShieldCheck, Wifi, WifiOff } from 'lucide-react';
 import { CAMERA_MODES } from '../graphics/cameraModes.js';
 
 export function FlightControlBar({
@@ -8,6 +8,10 @@ export function FlightControlBar({
   setCameraMode,
   onReset,
   onUpdate,
+  isPinging = true,
+  onStartPing,
+  onStopPing,
+  onTogglePing,
 }) {
   const [safetyOverride, setSafetyOverride] = useState(kernel.safetyOverride);
   const [feedbackMsg, setFeedbackMsg] = useState(null);
@@ -27,6 +31,7 @@ export function FlightControlBar({
 
   const handleStartMission = () => {
     kernel.startMission();
+    if (onStartPing) onStartPing();
     showFeedback('ROCKOON LIFT-OFF: Ground pad clamps released, ascending to stratosphere!');
     onUpdate();
   };
@@ -74,7 +79,7 @@ export function FlightControlBar({
 
   return (
     <div className="bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-2xl p-2.5 shadow-2xl flex flex-wrap items-center justify-between gap-2.5 text-xs select-none">
-      {/* 1. PRIMARY LIFECYCLE CONTROLS (START / STOP / RESUME / RESTART) */}
+      {/* 1. PRIMARY LIFECYCLE CONTROLS (START / STOP / RESUME / RESTART / PING) */}
       <div className="flex items-center space-x-2">
         {!hasLaunched ? (
           <button
@@ -105,14 +110,43 @@ export function FlightControlBar({
           </button>
         )}
 
-        {/* Restart to Pad */}
+        {/* Restart to Pad (Also Stops Pinging) */}
         <button
-          onClick={onReset}
+          onClick={() => {
+            onReset();
+            showFeedback('MISSION RESTARTED: Reset to launch pad [0,0,0] & TCP pinging stopped');
+          }}
           className="p-2 px-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-750 text-slate-300 border border-slate-700 transition-all flex items-center space-x-1.5 active:scale-95"
-          title="Restart simulation back to ground launch pad (0 m)"
+          title="Restart simulation back to ground launch pad (0 m) and stop TCP pinging"
         >
           <RotateCcw className="w-3.5 h-3.5" />
           <span className="font-mono text-[11px] hidden sm:inline">RESTART</span>
+        </button>
+
+        {/* Stop Ping / Start Ping Button */}
+        <button
+          onClick={() => {
+            if (onTogglePing) onTogglePing();
+            showFeedback(
+              isPinging
+                ? 'TCP SOCKET PING STOPPED (172.16.59.95:65432)'
+                : 'TCP SOCKET PING STARTED: Streaming JSON every 0.5s to 172.16.59.95:65432',
+              isPinging
+            );
+          }}
+          className={`p-2 px-2.5 rounded-xl border font-mono font-bold text-[11px] transition-all flex items-center space-x-1.5 active:scale-95 ${
+            isPinging
+              ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/50'
+              : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/50'
+          }`}
+          title={
+            isPinging
+              ? 'Stop 0.5s TCP JSON pinging to 172.16.59.95:65432'
+              : 'Start 0.5s TCP JSON pinging to 172.16.59.95:65432'
+          }
+        >
+          {isPinging ? <WifiOff className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
+          <span>{isPinging ? 'STOP PING' : 'START PING'}</span>
         </button>
 
         {/* Speed Warp Multipliers */}

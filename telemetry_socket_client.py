@@ -36,8 +36,10 @@ def get_live_simulation_payload(seq_num):
         req = urllib.request.Request(SIMULATOR_API_URL, method="GET")
         with urllib.request.urlopen(req, timeout=0.25) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            if "latestPayload" in data and data["latestPayload"]:
-                return data["latestPayload"]
+            if data.get("tcpStats", {}).get("isPinging") is False:
+                return None
+            if "latestSocketPayload" in data and data["latestSocketPayload"]:
+                return data["latestSocketPayload"]
     except Exception:
         pass
 
@@ -54,6 +56,7 @@ def get_live_simulation_payload(seq_num):
                 "is_running": True,
                 "is_paused": False,
                 "is_resumed": False,
+                "is_pinging": True,
                 "pause_count": 0,
                 "resume_count": 0,
                 "last_action": "STREAMING_0.5S",
@@ -64,11 +67,15 @@ def get_live_simulation_payload(seq_num):
 
 def start_client():
     seq = 0
-    print(f"Starting uninterrupted 0.5s JSON telemetry pinger to {SERVER_IP}:{PORT}...")
+    print(f"Starting 0.5s JSON telemetry pinger to {SERVER_IP}:{PORT}...")
     while True:
         cycle_start = time.time()
+        message = get_live_simulation_payload(seq + 1)
+        if message is None:
+            print("Pinging stopped (Restart / Stop Ping active). Waiting...")
+            time.sleep(PING_INTERVAL_SECONDS)
+            continue
         seq += 1
-        message = get_live_simulation_payload(seq)
 
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:

@@ -21,6 +21,9 @@ export function EngineeringDrawer({
   onExportJson,
   onUpdate,
   tcpStatus,
+  isPinging = true,
+  onStartPing,
+  onStopPing,
 }) {
   const [internalActiveTab, setInternalActiveTab] = useState(DRAWER_TABS.INSTRUMENTS);
   const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab;
@@ -37,6 +40,7 @@ export function EngineeringDrawer({
       is_running: kernel.isRunning,
       is_paused: kernel.isPaused,
       is_resumed: kernel.isResumed,
+      is_pinging: kernel.isPinging,
       has_launched: kernel.hasLaunched,
       pause_count: kernel.pauseCount || 0,
       resume_count: kernel.resumeCount || 0,
@@ -47,9 +51,10 @@ export function EngineeringDrawer({
       server_ip: '172.16.59.95',
       port: 65432,
       ping_interval_seconds: 0.5,
+      is_pinging: isPinging,
       protocol: '4-byte Big-Endian uint32 (!I) length header + UTF-8 JSON',
       packets_dispatched: tcpStatus?.totalPingsSent || 0,
-      socket_status: tcpStatus?.status || 'PINGING_0.5S',
+      socket_status: isPinging ? tcpStatus?.status || 'PINGING_0.5S' : 'PING_STOPPED',
       last_server_ack: tcpStatus?.lastAck || null,
     },
     flight_phase: telemetry?.flight_phase || 'PRELAUNCH',
@@ -216,14 +221,24 @@ export function EngineeringDrawer({
             {activeTab === DRAWER_TABS.JSON && (
               <div className="space-y-3 text-xs font-mono">
                 {/* 0.5s TCP Socket Stream Status Card (172.16.59.95:65432) */}
-                <div className="bg-slate-900/95 p-2.5 rounded-lg border border-sky-500/40 space-y-1.5">
+                <div className="bg-slate-900/95 p-2.5 rounded-lg border border-sky-500/40 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-sky-300 flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                      TCP SOCKET STREAM: 172.16.59.95:65432
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          isPinging ? 'bg-emerald-400 animate-ping' : 'bg-rose-500'
+                        }`}
+                      />
+                      TCP SOCKET: 172.16.59.95:65432
                     </span>
-                    <span className="px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 text-[10px] font-bold">
-                      EVERY 0.5s (!I 4-BYTE HEADER)
+                    <span
+                      className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${
+                        isPinging
+                          ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                          : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                      }`}
+                    >
+                      {isPinging ? 'PINGING (0.5s)' : 'PING STOPPED'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-[10px] text-slate-300">
@@ -245,6 +260,30 @@ export function EngineeringDrawer({
                       </strong>{' '}
                       (P:{kernel.pauseCount}/R:{kernel.resumeCount})
                     </span>
+                  </div>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      onClick={onStartPing}
+                      disabled={isPinging}
+                      className={`flex-1 py-1.5 rounded border text-[11px] font-bold transition-all ${
+                        isPinging
+                          ? 'bg-slate-800/50 text-slate-500 border-slate-800 cursor-not-allowed'
+                          : 'bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-300 border-emerald-500/50 active:scale-98'
+                      }`}
+                    >
+                      ▶ Start Ping
+                    </button>
+                    <button
+                      onClick={onStopPing}
+                      disabled={!isPinging}
+                      className={`flex-1 py-1.5 rounded border text-[11px] font-bold transition-all ${
+                        !isPinging
+                          ? 'bg-slate-800/50 text-slate-500 border-slate-800 cursor-not-allowed'
+                          : 'bg-rose-600/30 hover:bg-rose-600/40 text-rose-300 border-rose-500/50 active:scale-98'
+                      }`}
+                    >
+                      ■ Stop Ping
+                    </button>
                   </div>
                 </div>
 

@@ -543,9 +543,24 @@ console.log('\n--- TEST SUITE 10: Projectile Motion Alignment, Pause/Resume in J
       sockPayload.payload.simulation_state.pause_count === 1,
     'Socket payload includes simulation_state with pause and resume details'
   );
+
+  // 10D: Stop Pinging on Restart & Start/Stop Ping Controls
+  assert(kPause.isPinging === true, 'Pinging is active during mission');
+  kPause.stopPinging();
+  assert(kPause.isPinging === false, 'stopPinging() halts pinging');
+  assert(kPause.generateSensorReadings().simulation_state.is_pinging === false, 'simulation_state.is_pinging is false when stopped');
+
+  kPause.startPinging();
+  assert(kPause.isPinging === true, 'startPinging() resumes pinging');
+  assert(kPause.generateSensorReadings().simulation_state.is_pinging === true, 'simulation_state.is_pinging is true when started');
+
+  kPause.reset();
+  assert(kPause.isPinging === false, 'Restart (reset) automatically stops pinging');
+  assert(kPause.generateSensorReadings().simulation_state.is_pinging === false, 'After Restart, simulation_state.is_pinging is false');
 }
 
 console.log('\n================================================================');
 console.log(`🎉 ALL ${passedTests}/${totalTests} TESTS PASSED SUCCESSFULLY!`);
 console.log('================================================================');
+
 

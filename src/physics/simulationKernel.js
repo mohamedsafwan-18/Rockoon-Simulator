@@ -234,11 +234,12 @@ export class SimulationKernel {
     this.trajectoryPoints = [];
     this.lastTrajectoryRecordTimeMs = 0;
 
-    // Explicit Mission Lifecycle & Pause/Resume Tracking
+    // Explicit Mission Lifecycle & Pause/Resume + TCP Pinging Tracking
     this.hasLaunched = false;
     this.isRunning = false;
     this.isPaused = false;
     this.isResumed = false;
+    this.isPinging = true;
     this.missionStatus = 'PRELAUNCH'; // 'PRELAUNCH' | 'RUNNING' | 'PAUSED' | 'RESUMED'
     this.pauseCount = 0;
     this.resumeCount = 0;
@@ -267,11 +268,39 @@ export class SimulationKernel {
     return true;
   }
 
+  startPinging() {
+    this.isPinging = true;
+    this.pauseResumeEvents.push({
+      action: 'PING_STARTED',
+      mission_time_ms: Math.round(this.timeMs),
+      iso_time: new Date().toISOString(),
+    });
+    return true;
+  }
+
+  stopPinging() {
+    this.isPinging = false;
+    this.pauseResumeEvents.push({
+      action: 'PING_STOPPED',
+      mission_time_ms: Math.round(this.timeMs),
+      iso_time: new Date().toISOString(),
+    });
+    return false;
+  }
+
+  togglePinging() {
+    if (this.isPinging) {
+      return this.stopPinging();
+    }
+    return this.startPinging();
+  }
+
   startMission() {
     this.hasLaunched = true;
     this.isRunning = true;
     this.isPaused = false;
     this.isResumed = false;
+    this.isPinging = true;
     this.missionStatus = 'RUNNING';
     this.lastControlAction = 'STARTED';
     this.pauseResumeEvents.push({
@@ -381,6 +410,7 @@ export class SimulationKernel {
     this.isRunning = false;
     this.isPaused = false;
     this.isResumed = false;
+    this.isPinging = false; // Stop pinging automatically when Restart is triggered
     this.missionStatus = 'PRELAUNCH';
     this.pauseCount = 0;
     this.resumeCount = 0;
@@ -883,6 +913,7 @@ export class SimulationKernel {
       is_running: this.isRunning,
       is_paused: this.isPaused,
       is_resumed: this.isResumed,
+      is_pinging: this.isPinging,
       last_action: this.lastControlAction,
       pause_count: this.pauseCount,
       resume_count: this.resumeCount,
@@ -1111,6 +1142,7 @@ export class SimulationKernel {
           is_running: this.isRunning,
           is_paused: this.isPaused,
           is_resumed: this.isResumed,
+          is_pinging: this.isPinging,
           last_action: this.lastControlAction,
           pause_count: this.pauseCount,
           resume_count: this.resumeCount,

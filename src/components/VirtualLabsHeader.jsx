@@ -1,5 +1,5 @@
 import React from 'react';
-import { Rocket, Download, Activity, Radio, Cpu, Compass, Sliders, TrendingUp, FileJson, Wifi } from 'lucide-react';
+import { Rocket, Download, Activity, Radio, Cpu, Compass, Sliders, TrendingUp, FileJson, Wifi, WifiOff } from 'lucide-react';
 import { DRAWER_TABS } from './EngineeringDrawer.jsx';
 
 export function VirtualLabsHeader({
@@ -10,6 +10,8 @@ export function VirtualLabsHeader({
   isDrawerOpen,
   activeFaultCount = 0,
   tcpStatus,
+  isPinging = true,
+  onTogglePing,
 }) {
   const formatMet = (ms) => {
     const totalSec = Math.floor(ms / 1000);
@@ -122,19 +124,25 @@ export function VirtualLabsHeader({
             <Radio className="w-3 h-3" />
             <span>RF LINK</span>
           </div>
-          {/* Live 0.5s TCP Socket Stream Indicator (172.16.59.95:65432) */}
-          <div
-            onClick={() => onOpenDrawerTab(DRAWER_TABS.JSON)}
-            className={`cursor-pointer flex items-center space-x-1 px-2 py-0.5 rounded border transition-all ${
-              tcpStatus?.status === 'CONNECTED_ACK' || tcpStatus?.status === 'CONNECTED_SENT'
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50'
-                : 'bg-sky-500/20 text-sky-300 border-sky-500/50'
+          {/* Live 0.5s TCP Socket Stream Toggle Button (172.16.59.95:65432) */}
+          <button
+            onClick={onTogglePing}
+            className={`cursor-pointer flex items-center space-x-1.5 px-2.5 py-0.5 rounded border font-bold transition-all active:scale-95 ${
+              !isPinging
+                ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 hover:bg-rose-500/30'
+                : tcpStatus?.status === 'CONNECTED_ACK' || tcpStatus?.status === 'CONNECTED_SENT'
+                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 hover:bg-emerald-500/30'
+                : 'bg-sky-500/20 text-sky-300 border-sky-500/50 hover:bg-sky-500/30'
             }`}
-            title={`0.5s TCP Socket Stream -> 172.16.59.95:65432 | Packets: ${tcpStatus?.totalPingsSent || 0} | Status: ${tcpStatus?.status || 'PINGING_0.5S'}`}
+            title={
+              isPinging
+                ? `Click to Stop Ping | 172.16.59.95:65432 (0.5s) | Packets: ${tcpStatus?.totalPingsSent || 0}`
+                : 'Pinging Stopped — Click to Start Ping (172.16.59.95:65432 @ 0.5s)'
+            }
           >
-            <Wifi className="w-3 h-3 animate-pulse" />
-            <span>172.16.59.95:65432 (0.5s)</span>
-          </div>
+            {isPinging ? <Wifi className="w-3 h-3 animate-pulse" /> : <WifiOff className="w-3 h-3" />}
+            <span>{isPinging ? 'Stop Ping (172.16.59.95)' : 'Start Ping (172.16.59.95)'}</span>
+          </button>
         </div>
       </div>
 

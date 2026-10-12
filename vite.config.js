@@ -35,6 +35,7 @@ const tcpStats = {
   serverIp: SERVER_IP,
   port: PORT,
   intervalMs: PING_INTERVAL_MS,
+  isPinging: true,
   pingCount: 0,
   totalPingsSent: 0,
   ackCount: 0,
@@ -45,14 +46,43 @@ const tcpStats = {
   lastError: null,
 };
 
+let isPingingEnabled = true;
 let persistentSock = null;
 let isConnectingOrSending = false;
+
+function stopTcpPinger() {
+  isPingingEnabled = false;
+  tcpStats.isPinging = false;
+  tcpStats.status = 'PING_STOPPED';
+  tcpStats.lastStatus = 'STOPPED';
+  isConnectingOrSending = false;
+  if (persistentSock) {
+    try {
+      persistentSock.destroy();
+    } catch {
+      // ignore
+    }
+    persistentSock = null;
+  }
+}
+
+function startTcpPinger(payloadDict) {
+  isPingingEnabled = true;
+  tcpStats.isPinging = true;
+  tcpStats.status = 'PINGING_0.5S';
+  tcpStats.lastStatus = 'CONNECTING';
+  if (payloadDict) {
+    latestSocketPayload = payloadDict;
+  }
+  sendJsonToTcpServer(latestSocketPayload);
+}
 
 /**
  * Send JSON over raw TCP socket to 172.16.59.95:65432 using exact 4-byte Big-Endian (!I) length header
  * Matches Python: header = struct.pack("!I", len(payload_bytes)); sock.sendall(header + payload_bytes)
  */
 function sendJsonToTcpServer(payloadDict) {
+  if (!isPingingEnabled) return;
   tcpStats.pingCount += 1;
   tcpStats.totalPingsSent = tcpStats.pingCount;
   tcpStats.lastPingTimeIso = new Date().toISOString();
@@ -87,6 +117,7 @@ function sendJsonToTcpServer(payloadDict) {
           tcpStats.lastAck = respBytes.toString('utf-8');
         }
         tcpStats.ackCount += 1;
+        tcpStats.status = 'CONNECTED_ACK';
         tcpStats.lastStatus = 'CONNECTED_ACK';
         tcpStats.lastError = null;
         cleanupListeners();
@@ -95,7 +126,10 @@ function sendJsonToTcpServer(payloadDict) {
     };
 
     const onError = (err) => {
-      tcpStats.lastStatus = 'RETRYING_PING';
+      if (isPingingEnabled) {
+        tcpStats.status = 'PINGING_0.5S';
+        tcpStats.lastStatus = 'RETRYING_PING';
+      }
       tcpStats.lastError = err.message || 'TCP socket unreachable';
       cleanupListeners();
       if (persistentSock === sock) {
@@ -146,7 +180,9 @@ function sendJsonToTcpServer(payloadDict) {
   });
 
   sock.on('timeout', () => {
-    tcpStats.lastStatus = 'PING_TIMEOUT_RETRYING';
+    if (isPingingEnabled) {
+      tcpStats.lastStatus = 'PING_TIMEOUT_RETRYING';
+    }
     tcpStats.lastError = `Timeout pinging ${SERVER_IP}:${PORT}`;
     sock.destroy();
     if (persistentSock === sock) persistentSock = null;
@@ -154,7 +190,9 @@ function sendJsonToTcpServer(payloadDict) {
   });
 
   sock.on('error', (err) => {
-    tcpStats.lastStatus = 'RETRYING_PING';
+    if (isPingingEnabled) {
+      tcpStats.lastStatus = 'RETRYING_PING';
+    }
     tcpStats.lastError = err.message;
     sock.destroy();
     if (persistentSock === sock) persistentSock = null;
@@ -173,10 +211,12 @@ function sbrlTcpSocketRelayPlugin() {
   return {
     name: 'sbrl-tcp-socket-relay',
     configureServer(server) {
-      // Start constant 0.5-second (500ms) uninterrupted TCP pinger to 172.16.59.95:65432
+      // Start 0.5-second (500ms) TCP pinger to 172.16.59.95:65432 when isPingingEnabled is true
       if (!pingTimer) {
         pingTimer = setInterval(() => {
-          sendJsonToTcpServer(latestSocketPayload);
+          if (isPingingEnabled) {
+            sendJsonToTcpServer(latestSocketPayload);
+          }
         }, PING_INTERVAL_MS);
       }
 
@@ -189,9 +229,16 @@ function sbrlTcpSocketRelayPlugin() {
           req.on('end', () => {
             try {
               const incoming = JSON.parse(body);
-              latestSocketPayload = incoming;
-              // Trigger immediate TCP send on 0.5s sync
-              sendJsonToTcpServer(latestSocketPayload);
+              if (incoming?.action === 'stop' || incoming?.simulation_state?.is_pinging === false) {
+                stopTcpPinger();
+              } else if (incoming?.action === 'start') {
+                startTcpPinger(incoming.payload || latestSocketPayload);
+              } else {
+                latestSocketPayload = incoming;
+                if (isPingingEnabled) {
+                  sendJsonToTcpServer(latestSocketPayload);
+                }
+              }
             } catch {
               // ignore malformed JSON
             }
