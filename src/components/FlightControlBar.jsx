@@ -136,7 +136,8 @@ export function FlightControlBar({
       {/* 2. CAMERA MODES SELECTOR */}
       <div className="flex items-center space-x-1 bg-slate-950/80 p-0.5 rounded-xl border border-slate-800">
         {[
-          { id: CAMERA_MODES.TRACKING_ORBIT, label: 'Orbit Cam' },
+          { id: CAMERA_MODES.TRACKING_ORBIT, label: 'Vehicle Cam' },
+          { id: CAMERA_MODES.EARTH_GLOBE, label: '🌍 Earth & LEO' },
           { id: CAMERA_MODES.GROUND_TRACKER, label: 'Ground Tracker' },
           { id: CAMERA_MODES.HORIZON_WIDE, label: 'Horizon Wide' },
           { id: CAMERA_MODES.ONBOARD_POV, label: 'Onboard POV' },

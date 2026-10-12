@@ -159,15 +159,15 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
             )}
           </div>
 
-          {/* SECTION 1: ENVIRONMENTAL VARIABLES */}
+          {/* SECTION 1: ENVIRONMENTAL VARIABLES (11 Unique Non-Repeating Parameters) */}
           <div>
             <div className="text-[11px] font-mono font-bold tracking-wider text-sky-400 uppercase mb-2.5 flex items-center justify-between">
-              <span>1. Atmospheric & Wind Controls</span>
+              <span>1. Atmospheric & Wind Controls (11 Channels)</span>
               <span className="text-[10px] text-slate-400 font-normal">Physical Stress Drivers</span>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {/* Wind Speed */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {/* 1. Wind Speed */}
               <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
                 <div className="flex items-center justify-between mb-1">
                   <span className="flex items-center gap-1.5 text-slate-300">
@@ -186,17 +186,17 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
                   className="w-full accent-cyan-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
                 />
                 <div className="text-[9px] text-slate-400 font-mono mt-1 flex justify-between">
-                  <span>Drifts toward Safezone border</span>
-                  <span className="text-cyan-400">{env.windSpeedKmh >= 95 ? 'High Wind' : 'Nominal'}</span>
+                  <span>Drifts toward 35km border</span>
+                  <span className="text-cyan-400">{env.windSpeedKmh >= 50 ? 'High Drift' : 'Nominal'}</span>
                 </div>
               </div>
 
-              {/* Wind Direction */}
+              {/* 2. Wind Direction */}
               <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
                 <div className="flex items-center justify-between mb-1">
                   <span className="flex items-center gap-1.5 text-slate-300">
                     <Wind className="w-3.5 h-3.5 text-indigo-400" />
-                    <span>Wind Bearing</span>
+                    <span>Wind Direction</span>
                   </span>
                   <span className="font-mono text-indigo-300 font-bold">{env.windDirectionDeg}°</span>
                 </div>
@@ -210,18 +210,144 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
                   className="w-full accent-indigo-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
                 />
                 <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
-                  <span>0° (North)</span>
-                  <span>180° (South)</span>
+                  <span>0° (N)</span>
+                  <span>180° (S)</span>
                   <span>360°</span>
                 </div>
               </div>
 
-              {/* Turbulence Intensity */}
+              {/* 3. Vertical Wind Velocity */}
+              <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="flex items-center gap-1.5 text-slate-300">
+                    <Wind className="w-3.5 h-3.5 text-teal-400" />
+                    <span>Vertical Wind Vel.</span>
+                  </span>
+                  <span className="font-mono text-teal-300 font-bold">
+                    {(env.verticalWindMps ?? 0) >= 0 ? `+${(env.verticalWindMps ?? 0).toFixed(1)}` : (env.verticalWindMps ?? 0).toFixed(1)} m/s
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-15"
+                  max="15"
+                  step="0.5"
+                  value={env.verticalWindMps ?? 0}
+                  onChange={(e) => handleEnvChange('verticalWindMps', parseFloat(e.target.value))}
+                  className="w-full accent-teal-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                />
+                <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
+                  <span>-15 m/s Downdraft</span>
+                  <span>+15 m/s Updraft</span>
+                </div>
+              </div>
+
+              {/* 4. Wind Shear */}
+              <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="flex items-center gap-1.5 text-slate-300">
+                    <Zap className="w-3.5 h-3.5 text-orange-400" />
+                    <span>Wind Shear</span>
+                  </span>
+                  <span className="font-mono text-orange-300 font-bold">{(env.windShearMpsPerKm ?? 2.5).toFixed(1)} m/s/km</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="25"
+                  step="0.5"
+                  value={env.windShearMpsPerKm ?? 2.5}
+                  onChange={(e) => handleEnvChange('windShearMpsPerKm', parseFloat(e.target.value))}
+                  className="w-full accent-orange-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                />
+                <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
+                  <span>0 Calm</span>
+                  <span className="text-rose-400">≥20 m/s/km Tears!</span>
+                </div>
+              </div>
+
+              {/* 5. Atmospheric Pressure */}
+              <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="flex items-center gap-1.5 text-slate-300">
+                    <Gauge className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Atmospheric Pressure</span>
+                  </span>
+                  <span className="font-mono text-emerald-300 font-bold">{env.pressureScale.toFixed(2)}x ({Math.round(1013.25 * env.pressureScale)} hPa)</span>
+                </div>
+                <input
+                  type="range"
+                  min="0.8"
+                  max="1.2"
+                  step="0.02"
+                  value={env.pressureScale}
+                  onChange={(e) => handleEnvChange('pressureScale', parseFloat(e.target.value))}
+                  className="w-full accent-emerald-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                />
+                <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
+                  <span className="text-rose-400">&lt;0.88x Over-expands!</span>
+                  <span>1.20x High P</span>
+                </div>
+              </div>
+
+              {/* 6. Ambient Temperature */}
+              <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="flex items-center gap-1.5 text-slate-300">
+                    <Thermometer className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Ambient Temperature</span>
+                  </span>
+                  <span className="font-mono text-rose-300 font-bold">
+                    {env.tempDeltaC >= 0 ? `+${env.tempDeltaC}` : env.tempDeltaC}°C ({atmo?.ambient_temp_c ?? 15}°C)
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="-30"
+                  max="30"
+                  step="1"
+                  value={env.tempDeltaC}
+                  onChange={(e) => handleEnvChange('tempDeltaC', parseFloat(e.target.value))}
+                  className="w-full accent-rose-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                />
+                <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
+                  <span className="text-rose-400">≤-28°C: Embrittlement!</span>
+                  <span>+30°C Hot</span>
+                </div>
+              </div>
+
+              {/* 7. Air Density */}
+              <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="flex items-center gap-1.5 text-slate-300">
+                    <Gauge className="w-3.5 h-3.5 text-purple-400" />
+                    <span>Air Density</span>
+                  </span>
+                  <span className="font-mono text-purple-300 font-bold">
+                    {(env.airDensityScale ?? 1.0).toFixed(2)}x ({(1.225 * (env.airDensityScale ?? 1.0)).toFixed(2)} kg/m³)
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0.70"
+                  max="1.30"
+                  step="0.02"
+                  value={env.airDensityScale ?? 1.0}
+                  onChange={(e) => handleEnvChange('airDensityScale', parseFloat(e.target.value))}
+                  className="w-full accent-purple-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                />
+                <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
+                  <span>0.70x Thin Air (Low Lift)</span>
+                  <span>1.30x Dense Lift</span>
+                </div>
+              </div>
+
+              {/* 8. Atmospheric Turbulence */}
               <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
                 <div className="flex items-center justify-between mb-1">
                   <span className="flex items-center gap-1.5 text-slate-300">
                     <Zap className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Turbulence / Shear</span>
+                    <span>Atmospheric Turbulence</span>
                   </span>
                   <span className="font-mono text-amber-300 uppercase font-bold text-[10px]">{env.turbulenceLevel}</span>
                 </div>
@@ -245,38 +371,60 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
                 </div>
               </div>
 
-              {/* Ambient Temperature Delta */}
+              {/* 9. Temperature Lapse Rate */}
               <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
                 <div className="flex items-center justify-between mb-1">
                   <span className="flex items-center gap-1.5 text-slate-300">
-                    <Thermometer className="w-3.5 h-3.5 text-rose-400" />
-                    <span>Temp Delta ΔT</span>
+                    <Thermometer className="w-3.5 h-3.5 text-pink-400" />
+                    <span>Temp. Lapse Rate</span>
                   </span>
-                  <span className="font-mono text-rose-300 font-bold">
-                    {env.tempDeltaC >= 0 ? `+${env.tempDeltaC}` : env.tempDeltaC}°C
-                  </span>
+                  <span className="font-mono text-pink-300 font-bold">{(env.lapseRateCPerKm ?? -6.5).toFixed(1)} °C/km</span>
                 </div>
                 <input
                   type="range"
-                  min="-30"
-                  max="30"
-                  step="1"
-                  value={env.tempDeltaC}
-                  onChange={(e) => handleEnvChange('tempDeltaC', parseFloat(e.target.value))}
-                  className="w-full accent-rose-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                  min="-9.8"
+                  max="-3.5"
+                  step="0.1"
+                  value={env.lapseRateCPerKm ?? -6.5}
+                  onChange={(e) => handleEnvChange('lapseRateCPerKm', parseFloat(e.target.value))}
+                  className="w-full accent-pink-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
                 />
                 <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
-                  <span className="text-rose-400">≤-28°C: Embrittlement</span>
-                  <span>+30°C Hot</span>
+                  <span className="text-rose-400">≤-8.6°C/km Cryo Burst!</span>
+                  <span>-6.5 ISA Std</span>
                 </div>
               </div>
 
-              {/* Surface Humidity */}
+              {/* 10. Solar Radiation Intensity */}
               <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
                 <div className="flex items-center justify-between mb-1">
                   <span className="flex items-center gap-1.5 text-slate-300">
+                    <Flame className="w-3.5 h-3.5 text-yellow-400" />
+                    <span>Solar Radiation</span>
+                  </span>
+                  <span className="font-mono text-yellow-300 font-bold">{env.solarRadiationWm2 ?? 1000} W/m²</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="1400"
+                  step="20"
+                  value={env.solarRadiationWm2 ?? 1000}
+                  onChange={(e) => handleEnvChange('solarRadiationWm2', parseFloat(e.target.value))}
+                  className="w-full accent-yellow-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                />
+                <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
+                  <span>0 W/m² Night</span>
+                  <span className="text-rose-400">≥1320 W/m² Superheat!</span>
+                </div>
+              </div>
+
+              {/* 11. Surface Relative Humidity */}
+              <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80 sm:col-span-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="flex items-center gap-1.5 text-slate-300">
                     <Droplets className="w-3.5 h-3.5 text-blue-400" />
-                    <span>Surface Humidity</span>
+                    <span>Relative Humidity (Surface)</span>
                   </span>
                   <span className="font-mono text-blue-300 font-bold">{env.surfaceHumidityPct}%</span>
                 </div>
@@ -290,32 +438,9 @@ export function EnvironmentalSandbox({ kernel, onUpdate }) {
                   className="w-full accent-blue-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
                 />
                 <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
-                  <span>0% Dry</span>
-                  <span>100% Saturation</span>
-                </div>
-              </div>
-
-              {/* Atmospheric Pressure Scale */}
-              <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800/80">
-                <div className="flex items-center justify-between mb-1">
-                  <span className="flex items-center gap-1.5 text-slate-300">
-                    <Gauge className="w-3.5 h-3.5 text-emerald-400" />
-                    <span>Pressure Scale</span>
-                  </span>
-                  <span className="font-mono text-emerald-300 font-bold">{env.pressureScale.toFixed(2)}x</span>
-                </div>
-                <input
-                  type="range"
-                  min="0.8"
-                  max="1.2"
-                  step="0.02"
-                  value={env.pressureScale}
-                  onChange={(e) => handleEnvChange('pressureScale', parseFloat(e.target.value))}
-                  className="w-full accent-emerald-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
-                />
-                <div className="flex justify-between text-[9px] text-slate-400 font-mono mt-1">
-                  <span className="text-rose-400">&lt;0.88x Over-expands</span>
-                  <span>1.20x High P</span>
+                  <span>0% Dry Air</span>
+                  <span>Modulates Cloud Opacity & Moist Air Density</span>
+                  <span>100% Saturated</span>
                 </div>
               </div>
             </div>

@@ -178,20 +178,22 @@ console.log('\n--- TEST SUITE 4: Stratospheric Launch to Low Earth Orbit (LEO) -
 
   // Verify circular orbit stability (coast for 20 seconds in LEO)
   const leoAlt = kernel.position.y;
+  const preOrbitAngle = kernel.orbitalAngleRad;
   for (let i = 0; i < 20; i++) {
     kernel.integrate(1.0);
   }
   assert(Math.abs(kernel.position.y - leoAlt) < 0.1, `Circular LEO altitude remains rock-steady during orbit: ${(leoAlt / 1000).toFixed(1)} km`);
   assert(kernel.velocity.vy === 0.0, 'Vertical velocity circularized to 0.0 m/s');
+  assert(kernel.orbitalAngleRad > preOrbitAngle, `Satellite revolving around Earth in circular orbit (theta = ${(kernel.orbitalAngleRad * 180 / Math.PI).toFixed(1)}°)`);
 
   // Verify 3D Trajectory Track Line points recorded
   assert(kernel.trajectoryPoints.length > 50, `3D Trajectory line trace recorded: ${kernel.trajectoryPoints.length} points`);
 }
 
 // -------------------------------------------------------------
-// TEST SUITE 5: BALLOON BURST & PHYSICS THRESHOLDS
+// TEST SUITE 5: BALLOON BURST & 11-CHANNEL SANDBOX PHYSICS THRESHOLDS
 // -------------------------------------------------------------
-console.log('\n--- TEST SUITE 5: Balloon Burst Physics & Thresholds ---');
+console.log('\n--- TEST SUITE 5: Balloon Burst Physics & 11-Channel Sandbox Thresholds ---');
 {
   // Test 5A: Low Pressure Scale (< 0.88x) causes over-expansion burst at float altitude
   const kernelBurstA = new SimulationKernel();
@@ -227,7 +229,37 @@ console.log('\n--- TEST SUITE 5: Balloon Burst Physics & Thresholds ---');
   kernelBurstD.integrate(1.0);
   assert(kernelBurstD.isBalloonBurst === true, 'Cryogenic embrittlement burst below -78°C glass transition');
 
-  // Test 5E: Rocket Plunges in Free Fall when Balloon Bursts
+  // Test 5E: Extreme Vertical Wind Shear (>= 20 m/s/km) tears envelope
+  const kernelShear = new SimulationKernel();
+  kernelShear.startMission();
+  kernelShear.position.y = 8000;
+  kernelShear.setEnvParam('windShearMpsPerKm', 22.0);
+  assert(kernelShear.isBalloonBurst === true, 'Extreme vertical wind shear (>= 20 m/s/km) tore envelope');
+
+  // Test 5F: Solar Radiation Thermal Superheating (>= 1320 W/m2) bursts envelope
+  const kernelSolar = new SimulationKernel();
+  kernelSolar.startMission();
+  kernelSolar.position.y = 25000;
+  kernelSolar.setEnvParam('solarRadiationWm2', 1360);
+  assert(kernelSolar.isBalloonBurst === true, 'Extreme solar radiation (>= 1320 W/m2) triggered thermal superpressure burst');
+
+  // Test 5G: Steep Temperature Lapse Rate (<= -8.6 °C/km) causes tropopause cryogenic burst
+  const kernelLapse = new SimulationKernel();
+  kernelLapse.startMission();
+  kernelLapse.position.y = 11000;
+  kernelLapse.setEnvParam('lapseRateCPerKm', -9.2);
+  assert(kernelLapse.isBalloonBurst === true, 'Steep lapse rate (-9.2 °C/km) cooled tropopause below -78°C and burst envelope');
+
+  // Test 5H: Vertical Wind Velocity & Air Density Scale modulate climb dynamics without bursting
+  const kernelVert = new SimulationKernel();
+  kernelVert.startMission();
+  kernelVert.setEnvParam('verticalWindMps', 8.0);
+  kernelVert.setEnvParam('airDensityScale', 1.2);
+  kernelVert.integrate(2.0);
+  assert(kernelVert.isBalloonBurst === false, 'Vertical updraft and air density scale modulate buoyancy safely');
+  assert(kernelVert.velocity.vy > 8.5, `Updraft + high air density boosted vertical climb rate: ${kernelVert.velocity.vy.toFixed(2)} m/s`);
+
+  // Test 5I: Rocket Plunges in Free Fall when Balloon Bursts
   const kernelFall = new SimulationKernel();
   kernelFall.startMission();
   kernelFall.position.y = 8000;

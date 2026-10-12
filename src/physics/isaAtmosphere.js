@@ -20,9 +20,12 @@ export const CONSTANTS = {
  */
 export function calculateAtmosphere(altitudeM, envParams = {}) {
   const {
-    tempDeltaC = 0,         // Ambient temperature offset (-30 to +30 °C)
-    pressureScale = 1.0,    // Atmospheric pressure scale factor (0.8x to 1.2x)
-    surfaceHumidityPct = 60,// Surface relative humidity (0 to 100%)
+    tempDeltaC = 0,            // Ambient temperature offset (-30 to +30 °C)
+    pressureScale = 1.0,       // Atmospheric pressure scale factor (0.8x to 1.2x)
+    surfaceHumidityPct = 60,   // Surface relative humidity (0 to 100%)
+    airDensityScale = 1.0,     // Air density scale factor (0.7x to 1.3x)
+    lapseRateCPerKm = -6.5,    // Tropospheric temperature lapse rate (-9.8 to -3.5 °C/km)
+    solarRadiationWm2 = 1000,  // Solar radiation intensity (0 to 1400 W/m^2)
   } = envParams;
 
   const h = Math.max(0, altitudeM);
@@ -36,7 +39,7 @@ export function calculateAtmosphere(altitudeM, envParams = {}) {
   const h_stratopause = 47000; // 47 km
 
   // Lapse rates (K/m)
-  const L_tropo = -0.0065;      // -6.5 K/km cooling in troposphere
+  const L_tropo = (lapseRateCPerKm !== undefined ? lapseRateCPerKm : -6.5) / 1000.0; // Default -0.0065 K/m
   const L_strat1 = 0.0010;      // +1.0 K/km warming in lower stratosphere
   const L_strat2 = 0.0028;      // +2.8 K/km warming in mid stratosphere
 
@@ -90,13 +93,18 @@ export function calculateAtmosphere(altitudeM, envParams = {}) {
   const P_vapor = (humidityPct / 100) * P_sat_pa;
   const P_dry = Math.max(0, P_pa - P_vapor);
 
-  // Density using ideal gas law with moist air correction
+  // Density using ideal gas law with moist air correction and sandbox airDensityScale
   const rho_dry = (P_dry * CONSTANTS.M_air) / (CONSTANTS.R_gas * T_k);
   const rho_vapor = (P_vapor * CONSTANTS.M_vapor) / (CONSTANTS.R_gas * T_k);
-  const rho_air = rho_dry + rho_vapor;
+  const rho_air = (rho_dry + rho_vapor) * (airDensityScale !== undefined ? airDensityScale : 1.0);
 
-  // Helium density at ambient temperature and pressure
-  const rho_he = (P_pa * CONSTANTS.M_he) / (CONSTANTS.R_gas * T_k);
+  // Solar radiative superheating of helium gas inside envelope (proportional to solar radiation intensity)
+  const solarFlux = solarRadiationWm2 !== undefined ? solarRadiationWm2 : 1000;
+  const solarDeltaTK = ((solarFlux - 1000) / 1000) * 16.0 * (1 + 0.4 * Math.min(1, h / 38000));
+  const T_he_k = Math.max(160, T_k + solarDeltaTK);
+
+  // Helium density at internal gas temperature and ambient pressure
+  const rho_he = (P_pa * CONSTANTS.M_he) / (CONSTANTS.R_gas * T_he_k);
 
   // Speed of sound
   const soundSpeed = Math.sqrt((CONSTANTS.gamma * CONSTANTS.R_gas * T_k) / CONSTANTS.M_air);
@@ -105,12 +113,15 @@ export function calculateAtmosphere(altitudeM, envParams = {}) {
     altitudeM: h,
     T_k,
     T_c,
+    T_he_k,
     P_pa,
     P_hpa: P_pa / 100,
     rho_air,
     rho_he,
     soundSpeed,
     humidityPct,
+    solarRadiationWm2: solarFlux,
+    lapseRateCPerKm: lapseRateCPerKm !== undefined ? lapseRateCPerKm : -6.5,
     layerName: getLayerName(h)
   };
 }

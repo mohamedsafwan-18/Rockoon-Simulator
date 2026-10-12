@@ -34,14 +34,19 @@ export class SimulationKernel {
     this.balloon = new BalloonSystem();
     this.rocket = new SbrlPyramidalRocket();
 
-    // Environment Configuration
+    // Environment Configuration (11 Unique Non-Repeating Physical Parameters)
     this.env = {
-      windSpeedKmh: 20.0,        // 0 to 120 km/h (20 km/h nominal launch weather stays inside 35 km safezone)
-      windDirectionDeg: 180.0,   // 0 to 360 deg (180 = from South toward North)
-      turbulenceLevel: 'mild',   // 'calm' | 'mild' | 'severe'
-      tempDeltaC: 0.0,           // -30 to +30 °C
-      surfaceHumidityPct: 65.0,  // 0 to 100%
-      pressureScale: 1.0,        // 0.8x to 1.2x
+      windSpeedKmh: 20.0,        // 1. Wind speed (0 to 120 km/h)
+      windDirectionDeg: 180.0,   // 2. Wind direction (0 to 360 deg)
+      verticalWindMps: 0.0,      // 3. Vertical wind velocity (-15 to +15 m/s)
+      windShearMpsPerKm: 2.5,    // 4. Wind shear gradient (0 to 25 m/s/km)
+      pressureScale: 1.0,        // 5. Atmospheric pressure scale (0.8x to 1.2x)
+      tempDeltaC: 0.0,           // 6. Ambient temperature offset (-30 to +30 °C)
+      airDensityScale: 1.0,      // 7. Air density multiplier (0.7x to 1.3x)
+      turbulenceLevel: 'mild',   // 8. Atmospheric turbulence ('calm' | 'mild' | 'severe')
+      lapseRateCPerKm: -6.5,     // 9. Temperature lapse rate (-9.8 to -3.5 °C/km)
+      solarRadiationWm2: 1000.0, // 10. Solar radiation intensity (0 to 1400 W/m^2)
+      surfaceHumidityPct: 65.0,  // 11. Surface relative humidity (0 to 100%)
     };
 
     // Fault Injection Flags
@@ -59,6 +64,7 @@ export class SimulationKernel {
     this.position = { x: 0.0, y: 0.0, z: 0.0 }; // Ground launch pad (0 m)
     this.velocity = { vx: 0.0, vy: 0.0, vz: 0.0 };
     this.acceleration = { ax: 0.0, ay: 0.0, az: 0.0 };
+    this.orbitalAngleRad = 0.0; // Angular revolution around Earth sphere (radians)
 
     // Latitude / Longitude origin (Launch base)
     this.originLat = 37.100;
@@ -151,10 +157,15 @@ export class SimulationKernel {
   resetEnvAndFaults() {
     this.env.windSpeedKmh = 20.0;
     this.env.windDirectionDeg = 180.0;
-    this.env.turbulenceLevel = 'mild';
-    this.env.tempDeltaC = 0.0;
-    this.env.surfaceHumidityPct = 65.0;
+    this.env.verticalWindMps = 0.0;
+    this.env.windShearMpsPerKm = 2.5;
     this.env.pressureScale = 1.0;
+    this.env.tempDeltaC = 0.0;
+    this.env.airDensityScale = 1.0;
+    this.env.turbulenceLevel = 'mild';
+    this.env.lapseRateCPerKm = -6.5;
+    this.env.solarRadiationWm2 = 1000.0;
+    this.env.surfaceHumidityPct = 65.0;
 
     this.faults.baroStick = false;
     this.faults.baroDriftActive = false;
@@ -171,6 +182,7 @@ export class SimulationKernel {
     this.position = { x: 0.0, y: 0.0, z: 0.0 };
     this.velocity = { vx: 0.0, vy: 0.0, vz: 0.0 };
     this.acceleration = { ax: 0.0, ay: 0.0, az: 0.0 };
+    this.orbitalAngleRad = 0.0;
     this.isTetherAttached = true;
     this.isBalloonBurst = false;
     this.balloonBurstReason = null;
@@ -190,29 +202,33 @@ export class SimulationKernel {
   }
 
   /**
-   * Determine wind vector based on altitude profile and turbulence
+   * Determine wind vector based on altitude profile, wind shear, vertical wind, and turbulence
    */
   getWindVector(altitudeM) {
+    if (altitudeM >= 50000) {
+      return { vx: 0.0, vy: 0.0, vz: 0.0 };
+    }
+
     const baseSpeedMps = (this.env.windSpeedKmh / 3.6);
     const rad = (this.env.windDirectionDeg * Math.PI) / 180;
+    const windShear = this.env.windShearMpsPerKm !== undefined ? this.env.windShearMpsPerKm : 2.5;
+    const verticalWind = this.env.verticalWindMps !== undefined ? this.env.verticalWindMps : 0.0;
     
     // Altitude profile multiplier:
-    // Low winds on ground, strong Jet Stream peak at 9.5-12 km, calm stratosphere at 22-38 km
+    // Low winds on ground, strong Jet Stream peak at 9.5-12 km amplified by windShear, calm stratosphere at 22-38 km
     let profileMultiplier = 1.0;
     if (altitudeM < 2000) {
       profileMultiplier = 0.4 + 0.6 * (altitudeM / 2000);
     } else if (altitudeM >= 8000 && altitudeM <= 13500) {
-      // Jet Stream amplification
+      // Jet Stream amplification + Wind Shear gradient
       const jetPeak = 10500;
       const sigma = 2000;
       const gaussian = Math.exp(-Math.pow(altitudeM - jetPeak, 2) / (2 * sigma * sigma));
-      profileMultiplier = 1.0 + 1.2 * gaussian;
+      const shearBoost = (windShear - 2.5) * 0.06;
+      profileMultiplier = 1.0 + (1.2 + Math.max(0, shearBoost)) * gaussian;
     } else if (altitudeM > 18000 && altitudeM < 50000) {
       // Stratospheric lull
       profileMultiplier = Math.max(0.15, 0.85 - 0.7 * Math.min(1.0, (altitudeM - 18000) / 18000));
-    } else if (altitudeM >= 50000) {
-      // Near vacuum space (mesosphere & thermosphere) -> zero aerodynamic wind
-      profileMultiplier = 0.0;
     }
 
     // Turbulence intensity
@@ -224,13 +240,16 @@ export class SimulationKernel {
     const tSec = this.timeMs / 1000;
     const gustX = Math.sin(tSec * 0.8 + altitudeM * 0.001) * 0.5 + Math.cos(tSec * 2.3) * 0.3;
     const gustZ = Math.cos(tSec * 0.7 + altitudeM * 0.0012) * 0.5 + Math.sin(tSec * 1.9) * 0.3;
-    const gustY = Math.sin(tSec * 1.5) * 0.2; // Up/downdraft
+    const gustY = Math.sin(tSec * 1.5) * 0.2;
 
     const totalSpeedMps = baseSpeedMps * profileMultiplier * (1 + turbIntensity * gustX);
 
+    // Vertical wind attenuates smoothly in upper stratosphere
+    const vertAttenuation = altitudeM > 20000 ? Math.max(0.1, 1.0 - (altitudeM - 20000) / 30000) : 1.0;
+
     return {
       vx: totalSpeedMps * Math.sin(rad) + (turbIntensity * baseSpeedMps * gustX),
-      vy: turbIntensity * baseSpeedMps * 0.4 * gustY,
+      vy: (verticalWind * vertAttenuation) + (turbIntensity * baseSpeedMps * 0.4 * gustY),
       vz: totalSpeedMps * Math.cos(rad) + (turbIntensity * baseSpeedMps * gustZ),
     };
   }
@@ -504,6 +523,16 @@ export class SimulationKernel {
     this.position.y += this.velocity.vy * dt;
     this.position.z += this.velocity.vz * dt;
 
+    // Advance spherical Earth orbital angle (radians) during powered rocket ascent and circular LEO orbit
+    if (!this.isTetherAttached) {
+      if (this.rocket.status === ROCKET_STATUS.LEO_ORBIT) {
+        // Revolve satellite around spherical Earth in circular Low Earth Orbit
+        this.orbitalAngleRad += (this.velocity.vx * dt) / 260000.0;
+      } else if (this.rocket.status === ROCKET_STATUS.STAGE1_BURN || this.rocket.status === ROCKET_STATUS.STAGE2_BURN) {
+        this.orbitalAngleRad += (this.velocity.vx * dt) / 900000.0;
+      }
+    }
+
     // Ground clamp if falling vehicle hits surface
     if (this.position.y <= 0) {
       this.position.y = 0;
@@ -524,9 +553,10 @@ export class SimulationKernel {
         x: this.position.x,
         y: this.position.y,
         z: this.position.z,
+        orbitalAngleRad: this.orbitalAngleRad,
         phase: this.getFlightPhase()
       });
-      if (this.trajectoryPoints.length > 3000) {
+      if (this.trajectoryPoints.length > 3500) {
         this.trajectoryPoints.shift();
       }
     }
@@ -672,7 +702,12 @@ export class SimulationKernel {
       environmental_sensors: {
         ambient_temp_c: Number(atmo.T_c.toFixed(1)),
         ambient_pressure_hpa: Number(atmo.P_hpa.toFixed(2)),
+        air_density_kgm3: Number(atmo.rho_air.toFixed(4)),
         relative_humidity_pct: Number(atmo.humidityPct.toFixed(1)),
+        solar_radiation_wm2: Number(atmo.solarRadiationWm2.toFixed(0)),
+        lapse_rate_c_per_km: Number(atmo.lapseRateCPerKm.toFixed(2)),
+        wind_shear_mps_per_km: Number((this.env.windShearMpsPerKm || 2.5).toFixed(1)),
+        vertical_wind_mps: Number((this.env.verticalWindMps || 0.0).toFixed(2)),
         effective_wind_vector_mps: [
           Number(wind.vx.toFixed(2)),
           Number(wind.vy.toFixed(2)),
@@ -688,6 +723,7 @@ export class SimulationKernel {
         thrust_n: Number(thrustN.toFixed(1)),
         rocket_status: this.rocket.status,
         orbital_velocity_mps: Number(this.rocket.orbitalVelocityMps.toFixed(1)),
+        orbital_angle_deg: Number(((this.orbitalAngleRad * 180 / Math.PI) % 360).toFixed(1)),
         propellant_kg: Number((this.rocket.currentStage1Propellant + this.rocket.currentStage2Propellant).toFixed(1)),
         total_mass_kg: Number((this.isTetherAttached ? balloonState.systemDeadMassKg + this.rocket.getMassKg() : this.rocket.getMassKg()).toFixed(1))
       },
@@ -764,7 +800,14 @@ export class SimulationKernel {
         environment_presets: {
           base_wind_speed_kmh: this.env.windSpeedKmh,
           wind_direction_deg: this.env.windDirectionDeg,
+          vertical_wind_mps: this.env.verticalWindMps,
+          wind_shear_mps_per_km: this.env.windShearMpsPerKm,
+          pressure_scale: this.env.pressureScale,
+          temp_delta_c: this.env.tempDeltaC,
+          air_density_scale: this.env.airDensityScale,
           turbulence_level: this.env.turbulenceLevel,
+          lapse_rate_c_per_km: this.env.lapseRateCPerKm,
+          solar_radiation_wm2: this.env.solarRadiationWm2,
           humidity_surface_pct: this.env.surfaceHumidityPct
         }
       },

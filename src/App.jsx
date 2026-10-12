@@ -101,7 +101,7 @@ export function App() {
       <div className="relative flex-1 w-full h-full overflow-hidden">
         {/* Fullscreen Three.js WebGL Canvas */}
         <div className="absolute inset-0 z-0">
-          <ThreeScene kernel={kernel} cameraMode={cameraMode} />
+          <ThreeScene kernel={kernel} cameraMode={cameraMode} setCameraMode={setCameraMode} />
         </div>
 
         {/* 3. NON-INTRUSIVE FLOATING MINI-HUD OVERLAY (TOP-LEFT) */}

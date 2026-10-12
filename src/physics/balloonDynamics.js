@@ -60,11 +60,27 @@ export class BalloonSystem {
       return { isBurst: true, reason: this.burstReason };
     }
 
-    // THRESHOLD C: Cryogenic Glass-Transition Embrittlement
-    // Polyethylene glass transition occurs below -78°C (195 K). Severe negative Temp Delta at tropopause shatters fabric.
+    // THRESHOLD C: Cryogenic Glass-Transition Embrittlement (driven by Temp Delta or extreme Lapse Rate)
+    // Polyethylene glass transition occurs below -78°C (195 K). Severe negative Temp Delta or steep Lapse Rate at tropopause shatters fabric.
     if (atmo.T_c <= -78.0 && altitudeM >= 7000) {
       this.isBurst = true;
       this.burstReason = `CRYOGENIC EMBRITTLEMENT: Ambient temperature (${atmo.T_c.toFixed(1)}°C) dropped below -78°C glass-transition threshold, shattering the film under vibration.`;
+      return { isBurst: true, reason: this.burstReason };
+    }
+
+    // THRESHOLD D: Extreme Vertical Wind Shear Differential Tearing
+    const windShear = envParams.windShearMpsPerKm !== undefined ? envParams.windShearMpsPerKm : 2.5;
+    if (windShear >= 20.0 && altitudeM >= 4000) {
+      this.isBurst = true;
+      this.burstReason = `WIND SHEAR STRUCTURAL TEAR: Extreme vertical wind shear gradient (${windShear.toFixed(1)} m/s/km) across the 120m flight train tore the envelope crown!`;
+      return { isBurst: true, reason: this.burstReason };
+    }
+
+    // THRESHOLD E: Solar Radiation Thermal Superpressure Burst
+    const solarRad = envParams.solarRadiationWm2 !== undefined ? envParams.solarRadiationWm2 : 1000;
+    if (solarRad >= 1320 && altitudeM >= 18000) {
+      this.isBurst = true;
+      this.burstReason = `SOLAR THERMAL SUPERPRESSURE BURST: Extreme solar flux (${solarRad} W/m²) superheated helium gas (${(atmo.T_he_k - 273.15).toFixed(1)}°C) beyond membrane tensile yield!`;
       return { isBurst: true, reason: this.burstReason };
     }
 
@@ -80,8 +96,9 @@ export class BalloonSystem {
     // Re-check structural rupture
     this.checkBurst(altitudeM, envParams, velocityVector, windVector);
 
-    // Gas expansion via Ideal Gas Law: P * V / T = n * R
-    let theoreticalVolume = (this.heliumMassKg / CONSTANTS.M_he) * CONSTANTS.R_gas * atmo.T_k / atmo.P_pa;
+    // Gas expansion via Ideal Gas Law: P * V / T_he = n * R
+    const gasTempK = atmo.T_he_k || atmo.T_k;
+    let theoreticalVolume = (this.heliumMassKg / CONSTANTS.M_he) * CONSTANTS.R_gas * gasTempK / atmo.P_pa;
 
     // Cap at zero-pressure venting capacity at float ceiling (~38-40 km)
     const isAtFloatLimit = theoreticalVolume >= this.maxDesignVolumeM3;
