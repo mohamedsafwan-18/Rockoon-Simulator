@@ -2,15 +2,54 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import net from 'node:net';
+import fs from 'node:fs';
+import path from 'node:path';
 
 const SERVER_IP = '172.16.59.95';
 const PORT = 65432;
 const PING_INTERVAL_MS = 500; // 0.5 seconds constant ping
 
+let latestPingPausedJson = {
+  ping_paused: 0,
+  'ping paused': 0,
+};
+
+function syncPingPausedJsonFile(val) {
+  const numVal = val ? 1 : 0;
+  if (latestPingPausedJson.ping_paused !== numVal) {
+    latestPingPausedJson = {
+      ping_paused: numVal,
+      'ping paused': numVal,
+    };
+    try {
+      fs.writeFileSync(
+        path.resolve(process.cwd(), 'ping_paused.json'),
+        JSON.stringify(latestPingPausedJson, null, 2),
+        'utf-8'
+      );
+    } catch {
+      // ignore fs write errors
+    }
+  }
+}
+
+// Initialize ping_paused.json with 0 on startup
+try {
+  fs.writeFileSync(
+    path.resolve(process.cwd(), 'ping_paused.json'),
+    JSON.stringify(latestPingPausedJson, null, 2),
+    'utf-8'
+  );
+} catch {
+  // ignore
+}
+
 // Shared state for the constant 0.5s TCP socket pinger
 let latestSocketPayload = {
   event: 'device_handshake',
   device_id: 'client_node_01',
+  ping_paused: 0,
+  'ping paused': 0,
   status: 'prelaunch',
   is_paused: false,
   is_resumed: false,
@@ -19,6 +58,8 @@ let latestSocketPayload = {
     is_running: false,
     is_paused: false,
     is_resumed: false,
+    ping_paused: 0,
+    'ping paused': 0,
     last_action: 'INITIALIZED',
     pause_count: 0,
     resume_count: 0,
@@ -26,6 +67,8 @@ let latestSocketPayload = {
   payload: {
     temperature: 15.0,
     status: 'prelaunch',
+    ping_paused: 0,
+    'ping paused': 0,
     is_paused: false,
     is_resumed: false,
   },
@@ -36,6 +79,7 @@ const tcpStats = {
   port: PORT,
   intervalMs: PING_INTERVAL_MS,
   isPinging: true,
+  pingPaused: 0,
   pingCount: 0,
   totalPingsSent: 0,
   ackCount: 0,
@@ -220,6 +264,11 @@ function sbrlTcpSocketRelayPlugin() {
         }, PING_INTERVAL_MS);
       }
 
+      server.middlewares.use('/api/ping-paused', (_req, res) => {
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify(latestPingPausedJson, null, 2));
+      });
+
       server.middlewares.use('/api/tcp-ping', (req, res) => {
         if (req.method === 'POST') {
           let body = '';
@@ -230,10 +279,24 @@ function sbrlTcpSocketRelayPlugin() {
             try {
               const incoming = JSON.parse(body);
               if (incoming?.action === 'stop' || incoming?.simulation_state?.is_pinging === false) {
+                syncPingPausedJsonFile(0);
+                tcpStats.pingPaused = 0;
                 stopTcpPinger();
               } else if (incoming?.action === 'start') {
-                startTcpPinger(incoming.payload || latestSocketPayload);
+                const payload = incoming.payload || latestSocketPayload;
+                const pVal = payload?.ping_paused ? 1 : 0;
+                syncPingPausedJsonFile(pVal);
+                tcpStats.pingPaused = pVal;
+                startTcpPinger(payload);
+              } else if (incoming?.action === 'stop_ping_10s') {
+                const payload = incoming.payload || latestSocketPayload;
+                syncPingPausedJsonFile(1);
+                tcpStats.pingPaused = 1;
+                startTcpPinger(payload);
               } else {
+                const pVal = incoming?.ping_paused ? 1 : 0;
+                syncPingPausedJsonFile(pVal);
+                tcpStats.pingPaused = pVal;
                 latestSocketPayload = incoming;
                 if (isPingingEnabled) {
                   sendJsonToTcpServer(latestSocketPayload);
@@ -243,13 +306,20 @@ function sbrlTcpSocketRelayPlugin() {
               // ignore malformed JSON
             }
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ ok: true, tcpStats }));
+            res.end(JSON.stringify({ ok: true, tcpStats, pingPausedJson: latestPingPausedJson }));
           });
           return;
         }
 
         res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ ok: true, tcpStats, latestSocketPayload }));
+        res.end(
+          JSON.stringify({
+            ok: true,
+            tcpStats,
+            pingPausedJson: latestPingPausedJson,
+            latestSocketPayload,
+          })
+        );
       });
     },
   };

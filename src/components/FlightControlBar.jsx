@@ -12,6 +12,8 @@ export function FlightControlBar({
   onStartPing,
   onStopPing,
   onTogglePing,
+  onStopPing10s,
+  pingPausedState,
 }) {
   const [safetyOverride, setSafetyOverride] = useState(kernel.safetyOverride);
   const [feedbackMsg, setFeedbackMsg] = useState(null);
@@ -23,6 +25,7 @@ export function FlightControlBar({
   const isAboveSafety = currentAlt >= kernel.safetyAltitudeM || safetyOverride;
   const rocketStatus = kernel.rocket.status;
   const isAttached = kernel.isTetherAttached;
+  const is10sStage = Boolean(pingPausedState?.active);
 
   const showFeedback = (msg, isErr = false) => {
     setFeedbackMsg({ text: msg, isErr });
@@ -123,7 +126,7 @@ export function FlightControlBar({
           <span className="font-mono text-[11px] hidden sm:inline">RESTART</span>
         </button>
 
-        {/* Stop Ping / Start Ping Button */}
+        {/* No-Internet Icon Button (Stop / Toggle Ping — Icon Only, No Text) */}
         <button
           onClick={() => {
             if (onTogglePing) onTogglePing();
@@ -134,19 +137,42 @@ export function FlightControlBar({
               isPinging
             );
           }}
-          className={`p-2 px-2.5 rounded-xl border font-mono font-bold text-[11px] transition-all flex items-center space-x-1.5 active:scale-95 ${
+          aria-label="Stop Ping"
+          className={`p-2 rounded-xl border transition-all flex items-center justify-center active:scale-95 ${
             isPinging
               ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/50'
-              : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border-emerald-500/50'
+              : 'bg-slate-800/90 hover:bg-slate-700 text-rose-400 border-rose-500/60'
           }`}
           title={
             isPinging
-              ? 'Stop 0.5s TCP JSON pinging to 172.16.59.95:65432'
-              : 'Start 0.5s TCP JSON pinging to 172.16.59.95:65432'
+              ? 'Stop Ping (172.16.59.95:65432)'
+              : 'Ping Stopped — Click to Start Ping (172.16.59.95:65432)'
           }
         >
-          {isPinging ? <WifiOff className="w-3.5 h-3.5" /> : <Wifi className="w-3.5 h-3.5" />}
-          <span>{isPinging ? 'STOP PING' : 'START PING'}</span>
+          <WifiOff className="w-4 h-4" />
+        </button>
+
+        {/* "Stop ping for 10 secs" (Keeps pinging, slightly deviates telemetry as predicted, sets ping_paused = 1) */}
+        <button
+          onClick={() => {
+            if (onStopPing10s) onStopPing10s();
+            showFeedback(
+              '10s PREDICTIVE TELEMETRY STAGE ACTIVE (ping_paused = 1): Pinging continues with estimator-predicted telemetry!'
+            );
+          }}
+          className={`p-2 px-2.5 rounded-xl border font-mono font-bold text-[11px] transition-all flex items-center space-x-1.5 active:scale-95 ${
+            is10sStage
+              ? 'bg-amber-500/30 text-amber-200 border-amber-400 animate-pulse shadow-md'
+              : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/40'
+          }`}
+          title="Keeps pinging 172.16.59.95:65432 while slightly deviating telemetry data as predicted for 10s (ping_paused = 1)"
+        >
+          <WifiOff className="w-3.5 h-3.5" />
+          <span>
+            {is10sStage
+              ? `Stop ping for 10 secs (${pingPausedState.remainingSec.toFixed(0)}s | ping_paused: 1)`
+              : 'Stop ping for 10 secs'}
+          </span>
         </button>
 
         {/* Speed Warp Multipliers */}

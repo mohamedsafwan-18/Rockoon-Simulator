@@ -240,6 +240,10 @@ export class SimulationKernel {
     this.isPaused = false;
     this.isResumed = false;
     this.isPinging = true;
+    this.pingPaused10sActive = false;
+    this.pingPaused10sStartRealMs = 0;
+    this.pingPaused10sUntilRealMs = 0;
+    this.pingPaused10sElapsedOverrideSec = null;
     this.missionStatus = 'PRELAUNCH'; // 'PRELAUNCH' | 'RUNNING' | 'PAUSED' | 'RESUMED'
     this.pauseCount = 0;
     this.resumeCount = 0;
@@ -280,6 +284,8 @@ export class SimulationKernel {
 
   stopPinging() {
     this.isPinging = false;
+    this.pingPaused10sActive = false;
+    this.pingPaused10sElapsedOverrideSec = null;
     this.pauseResumeEvents.push({
       action: 'PING_STOPPED',
       mission_time_ms: Math.round(this.timeMs),
@@ -293,6 +299,76 @@ export class SimulationKernel {
       return this.stopPinging();
     }
     return this.startPinging();
+  }
+
+  /**
+   * "Stop ping for 10 secs":
+   * Does NOT actually stop the TCP socket pinging; instead, keeps pinging active
+   * while slightly deviating telemetry data for 10 seconds as if predicted by an estimator,
+   * and sets ping_paused = 1 (0 when not in the 10s stage).
+   */
+  triggerStopPingFor10Secs() {
+    this.isPinging = true; // Keep pinging active without interruption
+    this.pingPaused10sActive = true;
+    this.pingPaused10sStartRealMs = Date.now();
+    this.pingPaused10sUntilRealMs = this.pingPaused10sStartRealMs + 10000;
+    this.pingPaused10sElapsedOverrideSec = null;
+    this.lastControlAction = 'STOP_PING_10S_PREDICTED';
+    this.pauseResumeEvents.push({
+      action: 'STOP_PING_10S_PREDICTED',
+      mission_time_ms: Math.round(this.timeMs),
+      iso_time: new Date().toISOString(),
+    });
+    return true;
+  }
+
+  /**
+   * Returns current 10-second predictive stage status and ping_paused value (1 or 0)
+   */
+  getPingPausedState() {
+    if (!this.pingPaused10sActive) {
+      return {
+        active: false,
+        pingPausedValue: 0,
+        remainingSec: 0,
+        elapsedSec: 0,
+      };
+    }
+
+    const elapsedSec =
+      this.pingPaused10sElapsedOverrideSec !== null
+        ? this.pingPaused10sElapsedOverrideSec
+        : (Date.now() - this.pingPaused10sStartRealMs) / 1000;
+
+    if (elapsedSec >= 10.0) {
+      this.pingPaused10sActive = false;
+      this.pingPaused10sElapsedOverrideSec = null;
+      return {
+        active: false,
+        pingPausedValue: 0,
+        remainingSec: 0,
+        elapsedSec: 0,
+      };
+    }
+
+    return {
+      active: true,
+      pingPausedValue: 1,
+      remainingSec: Number(Math.max(0, 10.0 - elapsedSec).toFixed(1)),
+      elapsedSec: Number(Math.max(0, elapsedSec).toFixed(2)),
+    };
+  }
+
+  /**
+   * Returns the dedicated Ping Paused JSON object:
+   * { "ping_paused": 1, "ping paused": 1 } when in 10s stage, or 0 otherwise.
+   */
+  getPingPausedJson() {
+    const state = this.getPingPausedState();
+    return {
+      ping_paused: state.pingPausedValue,
+      'ping paused': state.pingPausedValue,
+    };
   }
 
   startMission() {
@@ -411,6 +487,10 @@ export class SimulationKernel {
     this.isPaused = false;
     this.isResumed = false;
     this.isPinging = false; // Stop pinging automatically when Restart is triggered
+    this.pingPaused10sActive = false;
+    this.pingPaused10sStartRealMs = 0;
+    this.pingPaused10sUntilRealMs = 0;
+    this.pingPaused10sElapsedOverrideSec = null;
     this.missionStatus = 'PRELAUNCH';
     this.pauseCount = 0;
     this.resumeCount = 0;
@@ -903,6 +983,58 @@ export class SimulationKernel {
       }
     }
 
+    // 6. 10-SECOND PREDICTIVE TELEMETRY DEVIATION ("Stop ping for 10 secs" mode)
+    const pingPausedState = this.getPingPausedState();
+    const pingPausedVal = pingPausedState.pingPausedValue; // 1 if in 10s stop-ping stage, 0 otherwise
+    let predictedTempC = atmo.T_c;
+
+    if (pingPausedState.active) {
+      const elapsed = Math.max(0.25, pingPausedState.elapsedSec);
+      const predPhase = elapsed * 1.45 + this.timeMs * 0.0012;
+
+      // Smooth Kalman / Dead-Reckoning Estimator Deviation across channels
+      const predAltOffset = 3.4 + 1.55 * elapsed + 1.9 * Math.sin(predPhase);
+      const predXOffset = 2.6 + 1.2 * elapsed + 1.4 * Math.cos(predPhase);
+      const predZOffset = -2.1 - 0.9 * elapsed + 1.15 * Math.sin(predPhase * 0.85);
+      const predPresOffset = -(0.32 + 0.15 * elapsed + 0.12 * Math.sin(predPhase));
+      const predSpeedOffset = 0.75 + 0.35 * elapsed + 0.28 * Math.cos(predPhase);
+      const predTempOffset = 0.25 + 0.09 * elapsed + 0.08 * Math.sin(predPhase);
+
+      measuredPressureHpa = Math.max(0.05, measuredPressureHpa + predPresOffset);
+      measuredAirspeed = Math.max(0, measuredAirspeed + predSpeedOffset);
+      predictedTempC += predTempOffset;
+
+      imuAccel[0] = Number((imuAccel[0] + 0.14 * Math.sin(predPhase)).toFixed(3));
+      imuAccel[1] = Number((imuAccel[1] + 0.11 * Math.cos(predPhase)).toFixed(3));
+      imuAccel[2] = Number((imuAccel[2] + 0.18 * Math.sin(predPhase * 0.7)).toFixed(3));
+
+      imuGyro[0] = Number((imuGyro[0] + 0.22 * Math.sin(predPhase)).toFixed(3));
+      imuGyro[1] = Number((imuGyro[1] + 0.17 * Math.cos(predPhase)).toFixed(3));
+      imuGyro[2] = Number((imuGyro[2] + 0.15 * Math.sin(predPhase * 0.9)).toFixed(3));
+
+      attitudeRpy[0] = Number((attitudeRpy[0] + 0.35 * Math.sin(predPhase)).toFixed(2));
+      attitudeRpy[1] = Number((attitudeRpy[1] + 0.45 * Math.cos(predPhase * 0.6)).toFixed(2));
+      attitudeRpy[2] = Number((attitudeRpy[2] + 0.28 * Math.sin(predPhase)).toFixed(2));
+
+      if (gnssX !== null && gnssY !== null && gnssZ !== null) {
+        gnssX += predXOffset;
+        gnssY += predAltOffset;
+        gnssZ += predZOffset;
+        gpsAlt = gnssY;
+        gpsLat = this.originLat + gnssZ / 111320;
+        gpsLon = this.originLon + gnssX / (111320 * Math.cos((this.originLat * Math.PI) / 180));
+      }
+    }
+
+    const finalDerivedBaroAlt = pingPausedState.active
+      ? derivedBaroAlt + (3.4 + 1.55 * Math.max(0.25, pingPausedState.elapsedSec))
+      : derivedBaroAlt;
+
+    const finalSlantRange3dM =
+      gnssX !== null && gnssY !== null && gnssZ !== null
+        ? Number(Math.sqrt(gnssX * gnssX + gnssY * gnssY + gnssZ * gnssZ).toFixed(2))
+        : slantRange3dM;
+
     // Balloon & Rocket state parameters
     const balloonState = this.balloon.getState(this.position.y, this.velocity, this.env, wind);
     const { thrustN } = this.rocket.computeThrust(atmo.P_pa);
@@ -914,6 +1046,10 @@ export class SimulationKernel {
       is_paused: this.isPaused,
       is_resumed: this.isResumed,
       is_pinging: this.isPinging,
+      ping_paused: pingPausedVal,
+      'ping paused': pingPausedVal,
+      is_10s_predicted_telemetry: pingPausedState.active,
+      ping_paused_remaining_sec: pingPausedState.remainingSec,
       last_action: this.lastControlAction,
       pause_count: this.pauseCount,
       resume_count: this.resumeCount,
@@ -925,6 +1061,12 @@ export class SimulationKernel {
     return {
       timestamp_ms: Math.round(this.timeMs),
       flight_phase: this.getFlightPhase(),
+      ping_paused: pingPausedVal,
+      'ping paused': pingPausedVal,
+      ping_paused_json: {
+        ping_paused: pingPausedVal,
+        'ping paused': pingPausedVal,
+      },
       simulation_state: simulationState,
       isPacketDropped,
       gnss_coordinates: {
@@ -937,28 +1079,28 @@ export class SimulationKernel {
         x_downrange_m: gnssX !== null ? Number(gnssX.toFixed(2)) : null,
         y_altitude_m: gnssY !== null ? Number(gnssY.toFixed(2)) : null,
         z_crossrange_m: gnssZ !== null ? Number(gnssZ.toFixed(2)) : null,
-        slant_range_3d_m: slantRange3dM,
+        slant_range_3d_m: finalSlantRange3dM,
         geodetic_wgs84: {
           lat_deg: gpsLat !== null ? Number(gpsLat.toFixed(6)) : null,
           lon_deg: gpsLon !== null ? Number(gpsLon.toFixed(6)) : null,
           alt_m: gpsAlt !== null ? Number(gpsAlt.toFixed(2)) : null,
         },
-        status: gpsStatus,
+        status: pingPausedState.active ? 'PREDICTED_ESTIMATOR' : gpsStatus,
       },
       barometric_sensor: {
         pressure_hpa: Number(measuredPressureHpa.toFixed(2)),
-        true_altitude_m: Number(trueAlt.toFixed(1)),
-        derived_altitude_m: Number(derivedBaroAlt.toFixed(1)),
-        status: baroStatus,
+        true_altitude_m: Number((pingPausedState.active ? gnssY ?? trueAlt : trueAlt).toFixed(1)),
+        derived_altitude_m: Number(finalDerivedBaroAlt.toFixed(1)),
+        status: pingPausedState.active ? 'PREDICTED_ESTIMATOR' : baroStatus,
       },
       imu_sensor: {
         accel_mps2: imuAccel,
         gyro_dps: imuGyro,
         attitude_rpy_deg: attitudeRpy,
-        status: imuStatus,
+        status: pingPausedState.active ? 'PREDICTED_ESTIMATOR' : imuStatus,
       },
       environmental_sensors: {
-        ambient_temp_c: Number(atmo.T_c.toFixed(1)),
+        ambient_temp_c: Number(predictedTempC.toFixed(1)),
         ambient_pressure_hpa: Number(atmo.P_hpa.toFixed(2)),
         air_density_kgm3: Number(atmo.rho_air.toFixed(4)),
         relative_humidity_pct: Number(atmo.humidityPct.toFixed(1)),
@@ -1019,7 +1161,7 @@ export class SimulationKernel {
         gps_altitude_m: gpsAlt !== null ? Number(gpsAlt.toFixed(1)) : null,
         lat: gpsLat !== null ? Number(gpsLat.toFixed(5)) : null,
         lon: gpsLon !== null ? Number(gpsLon.toFixed(5)) : null,
-        status: gpsStatus,
+        status: pingPausedState.active ? 'PREDICTED_ESTIMATOR' : gpsStatus,
         measured_airspeed_mps: Number(measuredAirspeed.toFixed(2)),
         true_airspeed_mps: Number(trueAirspeed.toFixed(2)),
         pitot_status: pitotStatus,
@@ -1030,7 +1172,7 @@ export class SimulationKernel {
 
   /**
    * Build the JSON packet streamed every 0.5 seconds to 172.16.59.95:65432
-   * Includes both the device_handshake/payload structure and full SBRL telemetry + pause/resume state.
+   * Includes both the device_handshake/payload structure and full SBRL telemetry + pause/resume + ping_paused state.
    */
   getSocketPayload() {
     const reading = this.generateSensorReadings();
@@ -1045,6 +1187,9 @@ export class SimulationKernel {
     return {
       event: 'device_handshake',
       device_id: 'client_node_01',
+      ping_paused: reading.ping_paused,
+      'ping paused': reading.ping_paused,
+      ping_paused_json: reading.ping_paused_json,
       server_target: {
         server_ip: '172.16.59.95',
         port: 65432,
@@ -1057,6 +1202,8 @@ export class SimulationKernel {
       payload: {
         temperature: reading.environmental_sensors.ambient_temp_c,
         status: statusLabel,
+        ping_paused: reading.ping_paused,
+        'ping paused': reading.ping_paused,
         is_paused: this.isPaused,
         is_resumed: this.isResumed,
         simulation_state: reading.simulation_state,
@@ -1097,9 +1244,12 @@ export class SimulationKernel {
    * Export telemetry to conformant JSON schema including 3D Launch-Pad-Origin GNSS Coordinates, Pause/Resume State & Physics
    */
   getExportJson() {
+    const pingPausedState = this.getPingPausedState();
     const records = this.telemetryBuffer.map((rec) => ({
       timestamp_ms: rec.timestamp_ms,
       flight_phase: rec.flight_phase,
+      ping_paused: rec.ping_paused ?? 0,
+      'ping paused': rec.ping_paused ?? 0,
       simulation_state: rec.simulation_state,
       gnss_coordinates: rec.gnss_coordinates,
       barometric_sensor: {
@@ -1128,6 +1278,9 @@ export class SimulationKernel {
     }));
 
     return {
+      ping_paused: pingPausedState.pingPausedValue,
+      'ping paused': pingPausedState.pingPausedValue,
+      ping_paused_json: this.getPingPausedJson(),
       mission_metadata: {
         platform_name: 'Aeroin SpaceTech SBRL',
         vehicle_configuration: 'Pyramidal Direct-to-Orbit Launch System',
@@ -1137,12 +1290,18 @@ export class SimulationKernel {
         active_preset: this.activePresetId,
         sample_rate_hz: this.sampleRateHz,
         total_samples: records.length,
+        ping_paused: pingPausedState.pingPausedValue,
+        'ping paused': pingPausedState.pingPausedValue,
         simulation_state: {
           status: this.missionStatus,
           is_running: this.isRunning,
           is_paused: this.isPaused,
           is_resumed: this.isResumed,
           is_pinging: this.isPinging,
+          ping_paused: pingPausedState.pingPausedValue,
+          'ping paused': pingPausedState.pingPausedValue,
+          is_10s_predicted_telemetry: pingPausedState.active,
+          ping_paused_remaining_sec: pingPausedState.remainingSec,
           last_action: this.lastControlAction,
           pause_count: this.pauseCount,
           resume_count: this.resumeCount,

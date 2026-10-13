@@ -12,6 +12,8 @@ export function VirtualLabsHeader({
   tcpStatus,
   isPinging = true,
   onTogglePing,
+  onStopPing10s,
+  pingPausedState,
 }) {
   const formatMet = (ms) => {
     const totalSec = Math.floor(ms / 1000);
@@ -27,10 +29,12 @@ export function VirtualLabsHeader({
   const imuStatus = telemetry?.imu_sensor?.status || 'NOMINAL';
   const gpsStatus = telemetry?.navigation_state?.status || 'NOMINAL';
   const linkStatus = telemetry?.navigation_state?.transceiver_status || 'NOMINAL';
+  const is10sStage = Boolean(pingPausedState?.active);
 
   const getStatusBadge = (status) => {
     if (status === 'NOMINAL') return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
     if (status === 'DEGRADED') return 'bg-amber-500/20 text-amber-400 border-amber-500/40';
+    if (status === 'PREDICTED_ESTIMATOR') return 'bg-amber-500/30 text-amber-200 border-amber-400 animate-pulse';
     return 'bg-rose-500/20 text-rose-400 border-rose-500/40 animate-pulse';
   };
 
@@ -124,24 +128,39 @@ export function VirtualLabsHeader({
             <Radio className="w-3 h-3" />
             <span>RF LINK</span>
           </div>
-          {/* Live 0.5s TCP Socket Stream Toggle Button (172.16.59.95:65432) */}
+          {/* No-Internet Icon Button (Stop / Toggle Ping — Icon Only, No Text) */}
           <button
             onClick={onTogglePing}
-            className={`cursor-pointer flex items-center space-x-1.5 px-2.5 py-0.5 rounded border font-bold transition-all active:scale-95 ${
-              !isPinging
+            aria-label="Stop Ping"
+            className={`cursor-pointer flex items-center justify-center p-1.5 rounded border transition-all active:scale-95 ${
+              isPinging
                 ? 'bg-rose-500/20 text-rose-300 border-rose-500/50 hover:bg-rose-500/30'
-                : tcpStatus?.status === 'CONNECTED_ACK' || tcpStatus?.status === 'CONNECTED_SENT'
-                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/50 hover:bg-emerald-500/30'
-                : 'bg-sky-500/20 text-sky-300 border-sky-500/50 hover:bg-sky-500/30'
+                : 'bg-slate-800 text-rose-400 border-rose-500/60 hover:bg-slate-700'
             }`}
             title={
               isPinging
-                ? `Click to Stop Ping | 172.16.59.95:65432 (0.5s) | Packets: ${tcpStatus?.totalPingsSent || 0}`
-                : 'Pinging Stopped — Click to Start Ping (172.16.59.95:65432 @ 0.5s)'
+                ? `Stop Ping (172.16.59.95:65432 | Sent: ${tcpStatus?.totalPingsSent || 0})`
+                : 'Ping Stopped — Click to Start Ping (172.16.59.95:65432)'
             }
           >
-            {isPinging ? <Wifi className="w-3 h-3 animate-pulse" /> : <WifiOff className="w-3 h-3" />}
-            <span>{isPinging ? 'Stop Ping (172.16.59.95)' : 'Start Ping (172.16.59.95)'}</span>
+            <WifiOff className="w-3.5 h-3.5" />
+          </button>
+
+          {/* "Stop ping for 10 secs" Button (Keeps pinging, slightly deviates telemetry as predicted, sets ping_paused = 1) */}
+          <button
+            onClick={onStopPing10s}
+            className={`cursor-pointer flex items-center space-x-1 px-2 py-0.5 rounded border font-bold transition-all active:scale-95 ${
+              is10sStage
+                ? 'bg-amber-500/30 text-amber-200 border-amber-400 animate-pulse'
+                : 'bg-amber-500/15 text-amber-300 border-amber-500/40 hover:bg-amber-500/25'
+            }`}
+            title="Keeps pinging 172.16.59.95:65432 while slightly deviating telemetry data as predicted for 10s (ping_paused = 1)"
+          >
+            <span>
+              {is10sStage
+                ? `Stop ping for 10 secs (${pingPausedState.remainingSec.toFixed(0)}s | ping_paused:1)`
+                : 'Stop ping for 10 secs'}
+            </span>
           </button>
         </div>
       </div>

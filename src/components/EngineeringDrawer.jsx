@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Compass, TrendingUp, Sliders, FileJson, ChevronRight, ChevronLeft, Download, X } from 'lucide-react';
+import { Compass, TrendingUp, Sliders, FileJson, ChevronRight, ChevronLeft, Download, X, WifiOff } from 'lucide-react';
 import { PrimaryFlightDisplay } from './PrimaryFlightDisplay.jsx';
 import { TelemetryGraphs } from './TelemetryGraphs.jsx';
 import { EnvironmentalSandbox } from './EnvironmentalSandbox.jsx';
@@ -24,16 +24,34 @@ export function EngineeringDrawer({
   isPinging = true,
   onStartPing,
   onStopPing,
+  onStopPing10s,
+  pingPausedState,
 }) {
   const [internalActiveTab, setInternalActiveTab] = useState(DRAWER_TABS.INSTRUMENTS);
   const activeTab = controlledActiveTab !== undefined ? controlledActiveTab : internalActiveTab;
   const setActiveTab = onSelectTab || setInternalActiveTab;
   const [copied, setCopied] = useState(false);
+  const [copiedPingPaused, setCopiedPingPaused] = useState(false);
+
+  const is10sStageActive = Boolean(pingPausedState?.active);
+  const pingPausedVal = is10sStageActive ? 1 : 0;
+
+  // Separate "ping paused" JSON (1 when in 10s stop-ping stage, 0 otherwise)
+  const pingPausedJsonObject = kernel?.getPingPausedJson
+    ? kernel.getPingPausedJson()
+    : {
+        ping_paused: pingPausedVal,
+        'ping paused': pingPausedVal,
+      };
+  const pingPausedJsonString = JSON.stringify(pingPausedJsonObject, null, 2);
 
   // Formatted JSON frame with Pause/Resume state, 0.5s TCP Socket header info, 3D GNSS Launch-Pad-Origin coordinates & advanced physics
   const currentPacket = {
     event: 'device_handshake',
     device_id: 'client_node_01',
+    ping_paused: pingPausedVal,
+    'ping paused': pingPausedVal,
+    ping_paused_json: pingPausedJsonObject,
     timestamp_ms: telemetry?.timestamp_ms || 0,
     simulation_state: telemetry?.simulation_state || {
       status: kernel.missionStatus || 'PRELAUNCH',
@@ -41,6 +59,10 @@ export function EngineeringDrawer({
       is_paused: kernel.isPaused,
       is_resumed: kernel.isResumed,
       is_pinging: kernel.isPinging,
+      ping_paused: pingPausedVal,
+      'ping paused': pingPausedVal,
+      predictive_10s_deviation_active: is10sStageActive,
+      predictive_10s_remaining_sec: pingPausedState?.remainingSec || 0,
       has_launched: kernel.hasLaunched,
       pause_count: kernel.pauseCount || 0,
       resume_count: kernel.resumeCount || 0,
@@ -52,6 +74,11 @@ export function EngineeringDrawer({
       port: 65432,
       ping_interval_seconds: 0.5,
       is_pinging: isPinging,
+      ping_paused: pingPausedVal,
+      'ping paused': pingPausedVal,
+      predictive_telemetry_mode: is10sStageActive
+        ? 'PREDICTIVE_DEVIATION_ACTIVE_10S'
+        : 'LIVE_SENSOR_STREAM',
       protocol: '4-byte Big-Endian uint32 (!I) length header + UTF-8 JSON',
       packets_dispatched: tcpStatus?.totalPingsSent || 0,
       socket_status: isPinging ? tcpStatus?.status || 'PINGING_0.5S' : 'PING_STOPPED',
@@ -109,6 +136,22 @@ export function EngineeringDrawer({
     navigator.clipboard.writeText(jsonString);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleCopyPingPaused = () => {
+    navigator.clipboard.writeText(pingPausedJsonString);
+    setCopiedPingPaused(true);
+    setTimeout(() => setCopiedPingPaused(false), 2000);
+  };
+
+  const handleExportPingPausedJson = () => {
+    const blob = new Blob([pingPausedJsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'ping_paused.json';
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const activeFaultCount = Object.values(kernel.faults || {}).filter(Boolean).length;
@@ -226,19 +269,29 @@ export function EngineeringDrawer({
                     <span className="text-[11px] font-bold text-sky-300 flex items-center gap-1.5">
                       <span
                         className={`w-2 h-2 rounded-full ${
-                          isPinging ? 'bg-emerald-400 animate-ping' : 'bg-rose-500'
+                          is10sStageActive
+                            ? 'bg-amber-400 animate-ping'
+                            : isPinging
+                            ? 'bg-emerald-400 animate-ping'
+                            : 'bg-rose-500'
                         }`}
                       />
                       TCP SOCKET: 172.16.59.95:65432
                     </span>
                     <span
                       className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${
-                        isPinging
+                        is10sStageActive
+                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/50'
+                          : isPinging
                           ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                           : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
                       }`}
                     >
-                      {isPinging ? 'PINGING (0.5s)' : 'PING STOPPED'}
+                      {is10sStageActive
+                        ? `PREDICTIVE 10s (${pingPausedState?.remainingSec?.toFixed(1) || '10.0'}s)`
+                        : isPinging
+                        ? 'PINGING (0.5s)'
+                        : 'PING STOPPED'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-[10px] text-slate-300">
@@ -265,7 +318,7 @@ export function EngineeringDrawer({
                     <button
                       onClick={onStartPing}
                       disabled={isPinging}
-                      className={`flex-1 py-1.5 rounded border text-[11px] font-bold transition-all ${
+                      className={`px-3 py-1.5 rounded border text-[11px] font-bold transition-all ${
                         isPinging
                           ? 'bg-slate-800/50 text-slate-500 border-slate-800 cursor-not-allowed'
                           : 'bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-300 border-emerald-500/50 active:scale-98'
@@ -273,18 +326,78 @@ export function EngineeringDrawer({
                     >
                       ▶ Start Ping
                     </button>
+
+                    {/* Stop Ping Option — Icon-only No-Internet Icon (Text Removed) */}
                     <button
                       onClick={onStopPing}
                       disabled={!isPinging}
-                      className={`flex-1 py-1.5 rounded border text-[11px] font-bold transition-all ${
+                      aria-label="Stop Ping"
+                      title="Stop Ping (No Internet Icon)"
+                      className={`px-3 py-1.5 rounded border flex items-center justify-center transition-all ${
                         !isPinging
                           ? 'bg-slate-800/50 text-slate-500 border-slate-800 cursor-not-allowed'
                           : 'bg-rose-600/30 hover:bg-rose-600/40 text-rose-300 border-rose-500/50 active:scale-98'
                       }`}
                     >
-                      ■ Stop Ping
+                      <WifiOff className="w-4 h-4" />
+                    </button>
+
+                    {/* Stop ping for 10 secs — Does NOT stop ping; slightly deviates telemetry as predicted */}
+                    <button
+                      onClick={onStopPing10s}
+                      title="Does not actually stop pinging — slightly deviates telemetry data for 10s as if predicted & sets ping_paused JSON to 1"
+                      className={`flex-1 py-1.5 px-2 rounded border text-[10px] font-bold transition-all ${
+                        is10sStageActive
+                          ? 'bg-amber-500/30 text-amber-200 border-amber-400/70 animate-pulse'
+                          : 'bg-amber-600/20 hover:bg-amber-600/35 text-amber-300 border-amber-500/40 active:scale-98'
+                      }`}
+                    >
+                      {is10sStageActive
+                        ? `Stop ping for 10 secs (${pingPausedState?.remainingSec?.toFixed(1) || '10.0'}s)`
+                        : 'Stop ping for 10 secs'}
                     </button>
                   </div>
+                </div>
+
+                {/* Dedicated "ping paused" JSON Block (1 during 10s stop-ping stage, 0 otherwise) */}
+                <div
+                  className={`p-2.5 rounded-lg border space-y-1.5 transition-all ${
+                    is10sStageActive
+                      ? 'bg-amber-950/35 border-amber-500/60'
+                      : 'bg-slate-900/90 border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-amber-300 flex items-center gap-1.5">
+                      <span>PING PAUSED JSON (ping_paused.json):</span>
+                      <span
+                        className={`px-1.5 py-0.2 rounded text-[10px] font-bold border ${
+                          is10sStageActive
+                            ? 'bg-amber-500/30 text-amber-200 border-amber-400/60'
+                            : 'bg-slate-800 text-slate-300 border-slate-700'
+                        }`}
+                      >
+                        VALUE = {pingPausedVal}
+                      </span>
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleCopyPingPaused}
+                        className="text-sky-400 hover:text-sky-300 text-[10px]"
+                      >
+                        {copiedPingPaused ? '✓ Copied' : 'Copy JSON'}
+                      </button>
+                      <button
+                        onClick={handleExportPingPausedJson}
+                        className="text-emerald-400 hover:text-emerald-300 text-[10px] font-bold"
+                      >
+                        Export ping_paused.json
+                      </button>
+                    </div>
+                  </div>
+                  <pre className="p-2 rounded bg-slate-950/90 border border-slate-800 text-amber-200 text-[11px] leading-snug">
+                    {pingPausedJsonString}
+                  </pre>
                 </div>
 
                 <div className="flex items-center justify-between bg-slate-900 p-2.5 rounded-lg border border-slate-800">
@@ -322,7 +435,7 @@ export function EngineeringDrawer({
                   </button>
                 </div>
 
-                <pre className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 text-sky-200 text-[11px] max-h-72 overflow-auto custom-scrollbar leading-relaxed">
+                <pre className="p-3 rounded-lg bg-slate-900/90 border border-slate-800 text-sky-200 text-[11px] max-h-60 overflow-auto custom-scrollbar leading-relaxed">
                   {jsonString}
                 </pre>
 

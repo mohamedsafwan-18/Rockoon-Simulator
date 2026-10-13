@@ -557,10 +557,81 @@ console.log('\n--- TEST SUITE 10: Projectile Motion Alignment, Pause/Resume in J
   kPause.reset();
   assert(kPause.isPinging === false, 'Restart (reset) automatically stops pinging');
   assert(kPause.generateSensorReadings().simulation_state.is_pinging === false, 'After Restart, simulation_state.is_pinging is false');
+
+  // 10E: "Stop ping for 10 secs" (Predictive Telemetry Deviation + ping_paused JSON 1 vs 0)
+  const k10s = new SimulationKernel();
+  k10s.startMission();
+  k10s.position.x = 500;
+  k10s.position.y = 12000;
+  k10s.position.z = 120;
+  k10s.velocity.vx = 18.0;
+  k10s.velocity.vy = 6.5;
+  k10s.velocity.vz = 4.0;
+
+  // Before triggering 10s stage: ping_paused must be 0
+  const pre10sJson = k10s.getPingPausedJson();
+  assert(
+    pre10sJson.ping_paused === 0 && pre10sJson['ping paused'] === 0,
+    'Before 10s stop-ping stage, ping_paused JSON has value 0'
+  );
+  const baselineReading = k10s.generateSensorReadings();
+  assert(baselineReading.ping_paused === 0 && baselineReading['ping paused'] === 0, 'Baseline telemetry has ping_paused === 0');
+
+  // Trigger "Stop ping for 10 secs"
+  k10s.triggerStopPingFor10Secs();
+  k10s.pingPaused10sElapsedOverrideSec = 2.5; // Simulate 2.5s into the 10s predictive window
+
+  assert(k10s.isPinging === true, '"Stop ping for 10 secs" does NOT actually stop pinging (isPinging remains true)');
+  const active10sJson = k10s.getPingPausedJson();
+  assert(
+    active10sJson.ping_paused === 1 && active10sJson['ping paused'] === 1,
+    'During 10s stop-ping stage, ping_paused JSON has value 1'
+  );
+
+  const predictedReading = k10s.generateSensorReadings();
+  assert(
+    predictedReading.ping_paused === 1 && predictedReading['ping paused'] === 1,
+    'Telemetry reading during 10s stage has ping_paused === 1'
+  );
+  assert(
+    predictedReading.ping_paused_json && predictedReading.ping_paused_json.ping_paused === 1,
+    'Telemetry reading embeds ping_paused_json with value 1'
+  );
+  assert(
+    predictedReading.gnss_coordinates.y_altitude_m !== k10s.position.y &&
+      Math.abs(predictedReading.gnss_coordinates.y_altitude_m - k10s.position.y) > 0.5 &&
+      Math.abs(predictedReading.gnss_coordinates.y_altitude_m - k10s.position.y) < 50,
+    `Telemetry altitude is slightly deviated as predicted during 10s stage: true=${k10s.position.y}m, predicted=${predictedReading.gnss_coordinates.y_altitude_m}m`
+  );
+  assert(
+    predictedReading.gnss_coordinates.x_downrange_m !== Number(k10s.position.x.toFixed(2)),
+    `GNSS X coordinate is slightly deviated as predicted: true=${k10s.position.x}m, predicted=${predictedReading.gnss_coordinates.x_downrange_m}m`
+  );
+  assert(
+    predictedReading.navigation_state.status === 'PREDICTED_ESTIMATOR',
+    'navigation_state.status indicates PREDICTED_ESTIMATOR during 10s stop-ping stage'
+  );
+
+  const sock10s = k10s.getSocketPayload();
+  assert(
+    sock10s.ping_paused === 1 &&
+      sock10s['ping paused'] === 1 &&
+      sock10s.ping_paused_json.ping_paused === 1,
+    '0.5s TCP socket payload includes ping_paused: 1 and ping_paused_json during 10s stage'
+  );
+
+  // After 10 seconds elapse: automatically returns to 0
+  k10s.pingPaused10sElapsedOverrideSec = 10.5;
+  const post10sJson = k10s.getPingPausedJson();
+  assert(
+    post10sJson.ping_paused === 0 && post10sJson['ping paused'] === 0,
+    'After 10s window expires, ping_paused JSON automatically returns to 0'
+  );
 }
 
 console.log('\n================================================================');
 console.log(`🎉 ALL ${passedTests}/${totalTests} TESTS PASSED SUCCESSFULLY!`);
 console.log('================================================================');
+
 
 

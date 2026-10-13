@@ -86,6 +86,34 @@ export function App() {
     }
   }, [kernel, handleStopPing, handleStartPing]);
 
+  const handleStopPing10s = useCallback(async () => {
+    kernel.triggerStopPingFor10Secs();
+    setTcpStatus(prev => ({
+      ...prev,
+      isPinging: true,
+      pingPaused: 1,
+      status: 'PINGING_0.5S',
+    }));
+    setTelemetry(kernel.generateSensorReadings());
+    forceUpdate();
+    try {
+      const res = await fetch('/api/tcp-ping', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'stop_ping_10s',
+          payload: kernel.getSocketPayload(),
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.tcpStats) setTcpStatus(data.tcpStats);
+      }
+    } catch {
+      // ignore if static build
+    }
+  }, [kernel, forceUpdate]);
+
   // Main high-frequency simulation integration loop
   useEffect(() => {
     let animId;
@@ -192,6 +220,8 @@ export function App() {
   const pressureHpa = telemetry?.barometric_sensor?.pressure_hpa || 1013.25;
   const ambientTempC = telemetry?.environmental_sensors?.ambient_temp_c || 15.0;
 
+  const pingPausedState = kernel.getPingPausedState();
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-slate-950 flex flex-col font-sans select-none">
       {/* 1. TOP HEADER NAVIGATION BAR */}
@@ -205,6 +235,8 @@ export function App() {
         tcpStatus={tcpStatus}
         isPinging={kernel.isPinging}
         onTogglePing={handleTogglePing}
+        onStopPing10s={handleStopPing10s}
+        pingPausedState={pingPausedState}
       />
 
       {/* 2. FULLSCREEN 3D SIMULATOR VIEWPORT */}
@@ -350,6 +382,8 @@ export function App() {
           onStartPing={handleStartPing}
           onStopPing={handleStopPing}
           onTogglePing={handleTogglePing}
+          onStopPing10s={handleStopPing10s}
+          pingPausedState={pingPausedState}
         />
 
         {/* 5. FLOATING BOTTOM MISSION CONTROL DECK */}
@@ -364,6 +398,8 @@ export function App() {
             onStartPing={handleStartPing}
             onStopPing={handleStopPing}
             onTogglePing={handleTogglePing}
+            onStopPing10s={handleStopPing10s}
+            pingPausedState={pingPausedState}
           />
         </div>
       </div>
