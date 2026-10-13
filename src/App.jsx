@@ -352,16 +352,16 @@ export function App() {
               </span>
             </div>
 
-            {/* 3D GNSS Coordinates from Launch Pad Origin [0, 0, 0] */}
+            {/* 3D GNSS Coordinates from chennailaunchpad Origin [0, 0, 0] (Chennai, India) */}
             <div className="pt-1.5 border-t border-slate-800/90 space-y-0.5">
-              <div className="text-[9px] text-emerald-400 font-bold uppercase tracking-wider flex justify-between">
-                <span>GNSS Origin [0,0,0]</span>
-                <span className="text-slate-400">3D XYZ (m)</span>
+              <div className="text-[9px] text-emerald-400 font-bold tracking-wider flex justify-between">
+                <span>ORIGIN: chennailaunchpad</span>
+                <span className="text-slate-400">13.08°N, 80.27°E</span>
               </div>
               <div className="text-[10px] text-slate-200 tabular-nums flex justify-between">
-                <span>X: {Math.round(kernel.position.x)}m</span>
-                <span>Y: {Math.round(kernel.position.y)}m</span>
-                <span>Z: {Math.round(kernel.position.z)}m</span>
+                <span>X: {Math.round(telemetry?.gnss_coordinates?.x_downrange_m ?? kernel.position.x)}m</span>
+                <span>Y: {Math.round(telemetry?.gnss_coordinates?.y_altitude_m ?? kernel.position.y)}m</span>
+                <span>Z: {Math.round(telemetry?.gnss_coordinates?.z_crossrange_m ?? kernel.position.z)}m</span>
               </div>
             </div>
           </div>

@@ -103,14 +103,23 @@ function createSbrlBandTexture() {
   return texture;
 }
 
+const CHENNAI_LAT_DEG = 13.0827;
+const CHENNAI_LON_DEG = 80.2707;
+
 /**
- * Procedural 3D Earth Globe Texture (Oceans, Continents, Ice Caps, Orbital Grid)
+ * Procedural 3D Earth Globe Texture with detailed Indian Subcontinent, Chennai Coastline & Bay of Bengal
  */
 function createEarthGlobeTexture() {
   const canvas = document.createElement('canvas');
   canvas.width = 2048;
   canvas.height = 1024;
   const ctx = canvas.getContext('2d');
+
+  // Helper: convert (latDeg, lonDeg) -> (x, y) on 2048x1024 equirectangular canvas
+  const llToXY = (lat, lon) => [
+    ((lon + 180) / 360) * 2048,
+    ((90 - lat) / 180) * 1024,
+  ];
 
   // Deep ocean gradient
   const oceanGrad = ctx.createLinearGradient(0, 0, 0, 1024);
@@ -122,7 +131,30 @@ function createEarthGlobeTexture() {
   ctx.fillStyle = oceanGrad;
   ctx.fillRect(0, 0, 2048, 1024);
 
-  // Procedural continents & landmasses
+  // Helper to draw a geographic polygon from [[lat, lon], ...]
+  const drawGeoPolygon = (coords, fillStyle, strokeStyle = null, lineWidth = 2) => {
+    if (!coords || coords.length === 0) return;
+    ctx.save();
+    ctx.beginPath();
+    coords.forEach(([lat, lon], idx) => {
+      const [x, y] = llToXY(lat, lon);
+      if (idx === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+    if (fillStyle) {
+      ctx.fillStyle = fillStyle;
+      ctx.fill();
+    }
+    if (strokeStyle) {
+      ctx.strokeStyle = strokeStyle;
+      ctx.lineWidth = lineWidth;
+      ctx.stroke();
+    }
+    ctx.restore();
+  };
+
+  // Procedural continents & landmasses (Americas, Africa, Europe, Asia, Australia)
   const drawContinent = (cx, cy, rx, ry, color, rot = 0) => {
     ctx.save();
     ctx.translate(cx, cy);
@@ -141,21 +173,110 @@ function createEarthGlobeTexture() {
     ctx.restore();
   };
 
-  // Continental masses + coastal shelves
   const blobs = [
-    [450, 320, 180, 140, '#14532d', 0.3],
-    [520, 620, 130, 210, '#166534', -0.2],
-    [1020, 290, 220, 130, '#15803d', 0.1],
-    [1060, 560, 150, 190, '#854d0e', 0.0],
-    [1420, 340, 280, 170, '#14532d', -0.15],
-    [1660, 700, 120, 95, '#7c2d12', 0.2],
-    [820, 190, 90, 65, '#1e3a2f', 0.4],
+    [450, 320, 175, 135, '#14532d', 0.3],   // North America
+    [560, 630, 115, 195, '#166534', -0.2],  // South America
+    [1060, 270, 160, 105, '#15803d', 0.1],  // Europe
+    [1080, 540, 145, 185, '#854d0e', 0.0],  // Africa
+    [1290, 385, 85, 75, '#92400e', 0.15],   // Arabian Peninsula
+    [1540, 290, 240, 135, '#14532d', -0.1], // Central/East Asia
+    [1640, 490, 95, 75, '#15803d', 0.25],   // SE Asia
+    [1720, 710, 115, 88, '#7c2d12', 0.2],   // Australia
   ];
   blobs.forEach(([x, y, rx, ry, col, rot]) => {
-    drawContinent(x, y, rx * 1.12, ry * 1.12, '#0e4f6e', rot); // Shallow coastal water
+    drawContinent(x, y, rx * 1.1, ry * 1.1, '#0e4f6e', rot);
     drawContinent(x, y, rx, ry, col, rot);
-    drawContinent(x + 15, y - 10, rx * 0.55, ry * 0.55, '#3f6212', rot);
   });
+
+  // Shallow coastal shelf around Indian Peninsula & Bay of Bengal
+  const indiaShelfPoly = [
+    [26, 66], [23, 67], [20, 70], [15, 72], [8, 76], [5.5, 79],
+    [10, 82], [13.1, 82], [17, 85], [22, 90], [21, 93], [29, 96],
+    [35, 78], [31, 72],
+  ];
+  drawGeoPolygon(indiaShelfPoly, '#0c5c7a');
+
+  // Detailed Indian Subcontinent Polygon (Peninsular India, Gujarat, Tamil Nadu/Chennai Coast, Bengal, Himalayas)
+  const indiaPolygon = [
+    [35.0, 74.5], // Kashmir / North
+    [32.0, 78.5], // Himachal / Uttarakhand
+    [28.5, 84.0], // Nepal / Himalayan arc
+    [27.5, 88.5], // Sikkim
+    [28.0, 95.5], // Arunachal
+    [24.0, 92.5], // Northeast
+    [22.0, 89.0], // Sundarbans / Bengal Delta
+    [20.0, 86.5], // Odisha Coast
+    [17.7, 83.3], // Visakhapatnam Coast
+    [15.8, 80.5], // Krishna Delta / Andhra Coast
+    [13.7, 80.23], // Sriharikota / Pulicat Lake
+    [13.08, 80.27], // CHENNAI COAST (Launch Pad Origin)
+    [10.8, 79.85], // Nagapattinam / Cauvery Delta
+    [9.28, 79.3], // Rameswaram
+    [8.08, 77.55], // Kanyakumari (Cape Comorin)
+    [9.9, 76.25], // Kochi / Kerala Coast
+    [12.9, 74.85], // Mangaluru / Karnataka Coast
+    [15.4, 73.8], // Goa
+    [19.0, 72.8], // Mumbai Coast
+    [21.5, 72.2], // Gulf of Khambhat
+    [20.9, 70.4], // Saurashtra
+    [22.8, 69.0], // Kutch
+    [24.5, 68.5], // Western border
+    [28.0, 70.5], // Rajasthan
+    [31.5, 74.5], // Punjab
+  ];
+  drawGeoPolygon(indiaPolygon, '#15803d', '#86efac', 2.2);
+
+  // Deccan Plateau & Interior Indian Highlands
+  const deccanPolygon = [
+    [25.0, 74.0],
+    [24.0, 82.5],
+    [18.0, 81.0],
+    [13.2, 79.2],
+    [10.5, 77.2],
+    [14.5, 75.2],
+    [20.5, 74.0],
+  ];
+  drawGeoPolygon(deccanPolygon, '#3f6212');
+
+  // Sri Lanka Island (Southeast of Tamil Nadu)
+  const sriLankaPolygon = [
+    [9.8, 80.0],
+    [8.6, 81.2],
+    [6.8, 81.8],
+    [5.9, 80.5],
+    [7.2, 79.8],
+    [9.0, 79.9],
+  ];
+  drawGeoPolygon(sriLankaPolygon, '#166534', '#86efac', 1.5);
+
+  // Highlight Chennai Launch Pad Marker & Labels on the Globe Texture
+  const [chennaiX, chennaiY] = llToXY(CHENNAI_LAT_DEG, CHENNAI_LON_DEG);
+  ctx.save();
+  // Glowing radar ring around Chennai
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(chennaiX, chennaiY, 14, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.fillStyle = '#f59e0b';
+  ctx.beginPath();
+  ctx.arc(chennaiX, chennaiY, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.font = 'bold 18px monospace';
+  ctx.fillStyle = '#fde047';
+  ctx.textAlign = 'center';
+  ctx.fillText('INDIA', chennaiX - 24, chennaiY - 26);
+
+  ctx.font = 'bold 13px monospace';
+  ctx.fillStyle = '#38bdf8';
+  ctx.textAlign = 'left';
+  ctx.fillText('CHENNAI LAUNCH PAD', chennaiX + 18, chennaiY + 4);
+  ctx.font = '11px monospace';
+  ctx.fillStyle = '#7dd3fc';
+  ctx.fillText('BAY OF BENGAL', chennaiX + 26, chennaiY + 22);
+  ctx.restore();
 
   // Polar ice caps
   ctx.fillStyle = 'rgba(226, 232, 240, 0.85)';
@@ -179,9 +300,70 @@ function createEarthGlobeTexture() {
   }
 
   const tex = new THREE.CanvasTexture(canvas);
-  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapS = THREE.ClampToEdgeWrapping;
   tex.wrapT = THREE.ClampToEdgeWrapping;
   return tex;
+}
+
+/**
+ * Compute rotation quaternion so that (latDeg, lonDeg) on SphereGeometry sits at top zenith (0, +R, 0)
+ * with East pointing along +X (Bay of Bengal launch azimuth) and South pointing along +Z (North = -Z).
+ */
+function createGlobeOrientationForLatLon(latDeg, lonDeg) {
+  const u = (lonDeg + 180) / 360;
+  const v = 1 - (90 - latDeg) / 180;
+  const phi = u * 2 * Math.PI;
+  const theta = (1 - v) * Math.PI;
+
+  // Outward unit normal at (lat, lon) on unrotated Three.js SphereGeometry
+  const uUp = new THREE.Vector3(
+    -Math.cos(phi) * Math.sin(theta),
+    Math.cos(theta),
+    Math.sin(phi) * Math.sin(theta)
+  ).normalize();
+
+  // Eastward tangent vector (increasing longitude / phi)
+  const uEast = new THREE.Vector3(Math.sin(phi), 0, Math.cos(phi)).normalize();
+
+  // Southward tangent vector (completing right-handed basis [East, Up, South] -> [+X, +Y, +Z])
+  const uSouth = new THREE.Vector3().crossVectors(uEast, uUp).normalize();
+
+  const basisMat = new THREE.Matrix4().makeBasis(uEast, uUp, uSouth);
+  basisMat.invert();
+  const q = new THREE.Quaternion().setFromRotationMatrix(basisMat);
+  return q;
+}
+
+/**
+ * Create ground apron signage texture for Chennai Launch Pad (chennailaunchpad)
+ */
+function createChennaiPadSignTexture() {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
+  ctx.fillRect(0, 0, 1024, 256);
+
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 6;
+  ctx.strokeRect(8, 8, 1008, 240);
+
+  ctx.fillStyle = '#f59e0b';
+  ctx.font = 'bold 52px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText('CHENNAI LAUNCH PAD · INDIA', 512, 98);
+
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 34px monospace';
+  ctx.fillText('ORIGIN: chennailaunchpad [0, 0, 0] | 13.0827°N, 80.2707°E', 512, 168);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '24px monospace';
+  ctx.fillText('EAST COAST COROMANDEL SPACEPORT · BAY OF BENGAL CORRIDOR', 512, 218);
+
+  return new THREE.CanvasTexture(canvas);
 }
 
 export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT, setCameraMode }) {
@@ -271,7 +453,7 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT, s
     const starField = new THREE.Points(starGeo, starMat);
     scene.add(starField);
 
-    // 4. Full Spherical Earth Globe (Centered at (0, -R_EARTH_VIS, 0) so Top Pole is (0, 0, 0))
+    // 4. Full Spherical Earth Globe (Oriented so Chennai, India [13.0827°N, 80.2707°E] sits at Top Zenith [0, 0, 0])
     const earthTexture = createEarthGlobeTexture();
     const earthGeo = new THREE.SphereGeometry(R_EARTH_VIS, 96, 96);
     const earthMat = new THREE.MeshStandardMaterial({
@@ -281,6 +463,7 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT, s
     });
     const earthMesh = new THREE.Mesh(earthGeo, earthMat);
     earthMesh.position.set(0, -R_EARTH_VIS, 0);
+    earthMesh.quaternion.copy(createGlobeOrientationForLatLon(CHENNAI_LAT_DEG, CHENNAI_LON_DEG));
     earthMesh.receiveShadow = true;
     scene.add(earthMesh);
 
@@ -334,17 +517,29 @@ export function ThreeScene({ kernel, cameraMode = CAMERA_MODES.TRACKING_ORBIT, s
     const leoHaloMesh = new THREE.Mesh(leoHaloGeo, leoHaloMat);
     leoOrbitGroup.add(leoHaloMesh);
 
-    // 4c. UPGRADED SPACEPORT GROUND LAUNCH COMPLEX (Strictly at y <= 0, Zero Sensor Interference)
+    // 4c. CHENNAI SPACEPORT GROUND LAUNCH COMPLEX (Origin: chennailaunchpad [0, 0, 0], Zero Sensor Interference)
     const padGroup = new THREE.Group();
     scene.add(padGroup);
 
-    // Coastal Spaceport Terrain Apron (flush at y = -0.45)
+    // Coastal Spaceport Terrain Apron (flush at y = -0.65)
     const terrainApronGeo = new THREE.CylinderGeometry(85, 95, 0.5, 48);
     const terrainApronMat = new THREE.MeshStandardMaterial({ color: 0x162436, roughness: 0.92, metalness: 0.08 });
     const terrainApron = new THREE.Mesh(terrainApronGeo, terrainApronMat);
     terrainApron.position.y = -0.65;
     terrainApron.receiveShadow = true;
     padGroup.add(terrainApron);
+
+    // Chennai Launch Pad Ground Apron Sign Deck (flush at y = -0.36)
+    const padSignGeo = new THREE.PlaneGeometry(34, 8.5);
+    const padSignMat = new THREE.MeshBasicMaterial({
+      map: createChennaiPadSignTexture(),
+      transparent: true,
+      side: THREE.DoubleSide,
+    });
+    const padSignMesh = new THREE.Mesh(padSignGeo, padSignMat);
+    padSignMesh.rotation.x = -Math.PI / 2;
+    padSignMesh.position.set(0, -0.36, 30);
+    padGroup.add(padSignMesh);
 
     // Outer Security & Radar Roadway Ring
     const roadRingGeo = new THREE.RingGeometry(52, 56, 64);

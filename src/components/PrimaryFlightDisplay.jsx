@@ -218,10 +218,10 @@ export function PrimaryFlightDisplay({ telemetry, kernel }) {
         </div>
       </div>
 
-      {/* 6. 3D GNSS LAUNCH-PAD-ORIGIN COORDINATES [X, Y, Z] */}
+      {/* 6. 3D GNSS LAUNCH-PAD-ORIGIN COORDINATES [X, Y, Z] (Origin: chennailaunchpad) */}
       <div className="col-span-2 md:col-span-3 bg-slate-900/90 backdrop-blur-md border border-slate-800 rounded-xl p-3 flex flex-col justify-between shadow-lg">
-        <div className="flex items-center justify-between text-[10px] font-mono uppercase text-emerald-400 font-bold mb-1">
-          <span>3D GNSS Coordinates (Origin: Launch Pad [0, 0, 0])</span>
+        <div className="flex items-center justify-between text-[10px] font-mono text-emerald-400 font-bold mb-1">
+          <span>3D GNSS Coordinates (Origin: chennailaunchpad [0, 0, 0] · Chennai, India)</span>
           <span className="text-[9px] text-slate-400">Slant: {Math.round(telemetry.gnss_coordinates?.slant_range_3d_m || 0)} m</span>
         </div>
         <div className="grid grid-cols-3 gap-2 my-1 font-mono">
@@ -245,8 +245,9 @@ export function PrimaryFlightDisplay({ telemetry, kernel }) {
           </div>
         </div>
         <div className="flex justify-between text-[10px] font-mono text-slate-400 pt-1 border-t border-slate-800/80">
-          <span>WGS84 Lat: {telemetry.gnss_coordinates?.geodetic_wgs84?.latitude_deg ?? 28.5729}°</span>
-          <span>Lon: {telemetry.gnss_coordinates?.geodetic_wgs84?.longitude_deg ?? -80.649}°</span>
+          <span>Origin: <strong className="text-emerald-300">chennailaunchpad</strong></span>
+          <span>WGS84 Lat: {telemetry.gnss_coordinates?.geodetic_wgs84?.lat_deg ?? 13.0827}°N</span>
+          <span>Lon: {telemetry.gnss_coordinates?.geodetic_wgs84?.lon_deg ?? 80.2707}°E</span>
         </div>
       </div>
 

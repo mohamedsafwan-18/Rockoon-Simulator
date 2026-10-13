@@ -191,16 +191,17 @@ export class SimulationKernel {
       telemetryDrop: false,
     };
 
-    // State Vectors (Origin [0, 0, 0] = Ground Launch Pad)
+    // State Vectors (Origin [0, 0, 0] = chennailaunchpad — Chennai, India)
     this.timeMs = 0;
-    this.position = { x: 0.0, y: 0.0, z: 0.0 }; // Ground launch pad origin (0, 0, 0 m)
+    this.position = { x: 0.0, y: 0.0, z: 0.0 }; // chennailaunchpad origin (0, 0, 0 m)
     this.velocity = { vx: 0.0, vy: 0.0, vz: 0.0 };
     this.acceleration = { ax: 0.0, ay: 0.0, az: 0.0 };
     this.orbitalAngleRad = 0.0;
 
-    // Geodetic Coordinates of Ground Launch Pad Origin
-    this.originLat = 37.100;
-    this.originLon = -6.733;
+    // Geodetic Coordinates of Chennai Launch Pad Origin (Near Chennai, Tamil Nadu, India)
+    this.originName = 'chennailaunchpad';
+    this.originLat = 13.0827;
+    this.originLon = 80.2707;
     this.originAlt = 0.0;
 
     // Balloon flight train state
@@ -1070,7 +1071,9 @@ export class SimulationKernel {
       simulation_state: simulationState,
       isPacketDropped,
       gnss_coordinates: {
-        origin_reference: 'LAUNCH_PAD_ORIGIN [0, 0, 0]',
+        origin: 'chennailaunchpad',
+        origin_reference: 'chennailaunchpad',
+        launch_site: 'Chennai Launch Pad, India (13.0827°N, 80.2707°E)',
         position_from_origin_xyz_m: [
           gnssX !== null ? Number(gnssX.toFixed(2)) : null,
           gnssY !== null ? Number(gnssY.toFixed(2)) : null,
@@ -1081,9 +1084,13 @@ export class SimulationKernel {
         z_crossrange_m: gnssZ !== null ? Number(gnssZ.toFixed(2)) : null,
         slant_range_3d_m: finalSlantRange3dM,
         geodetic_wgs84: {
+          origin: 'chennailaunchpad',
           lat_deg: gpsLat !== null ? Number(gpsLat.toFixed(6)) : null,
           lon_deg: gpsLon !== null ? Number(gpsLon.toFixed(6)) : null,
           alt_m: gpsAlt !== null ? Number(gpsAlt.toFixed(2)) : null,
+          latitude_deg: gpsLat !== null ? Number(gpsLat.toFixed(6)) : null,
+          longitude_deg: gpsLon !== null ? Number(gpsLon.toFixed(6)) : null,
+          altitude_msl_m: gpsAlt !== null ? Number(gpsAlt.toFixed(2)) : null,
         },
         status: pingPausedState.active ? 'PREDICTED_ESTIMATOR' : gpsStatus,
       },
@@ -1286,7 +1293,14 @@ export class SimulationKernel {
         vehicle_configuration: 'Pyramidal Direct-to-Orbit Launch System',
         launch_type: 'Stratospheric Balloon Rocket Launch (36-40 km)',
         firmware_build: 'SBRL-AEROIN-SIM-v2.4',
-        gnss_origin_reference: 'Ground Launch Pad [X=0.0m, Y=0.0m, Z=0.0m]',
+        origin: 'chennailaunchpad',
+        gnss_origin_reference: 'chennailaunchpad',
+        launch_site: 'Chennai Launch Pad, India (13.0827°N, 80.2707°E)',
+        origin_coordinates_wgs84: {
+          lat_deg: this.originLat,
+          lon_deg: this.originLon,
+          alt_m: this.originAlt,
+        },
         active_preset: this.activePresetId,
         sample_rate_hz: this.sampleRateHz,
         total_samples: records.length,

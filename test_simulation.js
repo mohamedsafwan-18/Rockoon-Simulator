@@ -441,15 +441,25 @@ console.log('\n--- TEST SUITE 9: Auto-1x at 34 km, Presets, Failed LEO, Separati
   kOutSafe.applyPreset('OUT_OF_SAFEZONE');
   assert(kOutSafe.env.windSpeedKmh >= 80, 'OUT_OF_SAFEZONE preset configured high crosswind');
 
-  // 9E: 3D GNSS Launch-Pad-Origin Coordinates [0, 0, 0] & 3 Dimensions in JSON
+  // 9E: 3D GNSS Launch-Pad-Origin Coordinates [0, 0, 0] (Origin: chennailaunchpad, Chennai, India)
   const kGnss = new SimulationKernel();
   const padReading = kGnss.generateSensorReadings();
+  assert(
+    kGnss.originName === 'chennailaunchpad' &&
+      padReading.gnss_coordinates.origin === 'chennailaunchpad' &&
+      padReading.gnss_coordinates.origin_reference === 'chennailaunchpad',
+    'GNSS origin is set to chennailaunchpad'
+  );
+  assert(
+    Math.abs(kGnss.originLat - 13.0827) < 0.01 && Math.abs(kGnss.originLon - 80.2707) < 0.01,
+    'Chennai Launch Pad geodetic origin is near Chennai, India (13.0827°N, 80.2707°E)'
+  );
   assert(
     Array.isArray(padReading.gnss_coordinates.position_from_origin_xyz_m) &&
       padReading.gnss_coordinates.position_from_origin_xyz_m[0] === 0 &&
       padReading.gnss_coordinates.position_from_origin_xyz_m[1] === 0 &&
       padReading.gnss_coordinates.position_from_origin_xyz_m[2] === 0,
-    'Launch pad origin is [0, 0, 0] in all 3 dimensions [X, Y, Z]'
+    'Chennai launch pad origin is [0, 0, 0] in all 3 dimensions [X, Y, Z]'
   );
 
   kGnss.startMission();
@@ -460,7 +470,11 @@ console.log('\n--- TEST SUITE 9: Auto-1x at 34 km, Presets, Failed LEO, Separati
 
   const exportGnss = kGnss.getExportJson();
   const lastRec = exportGnss.sensor_telemetry_records[exportGnss.sensor_telemetry_records.length - 1];
-  assert(exportGnss.mission_metadata.gnss_origin_reference === 'Ground Launch Pad [X=0.0m, Y=0.0m, Z=0.0m]', 'Metadata specifies Ground Launch Pad [X=0.0m, Y=0.0m, Z=0.0m] origin');
+  assert(
+    exportGnss.mission_metadata.origin === 'chennailaunchpad' &&
+      exportGnss.mission_metadata.gnss_origin_reference === 'chennailaunchpad',
+    'Metadata specifies chennailaunchpad origin'
+  );
   assert(
     Array.isArray(lastRec.gnss_coordinates.position_from_origin_xyz_m) &&
       lastRec.gnss_coordinates.position_from_origin_xyz_m.length === 3,
