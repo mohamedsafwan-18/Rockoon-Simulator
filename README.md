@@ -1,10 +1,10 @@
-# Virtual Labs: Aeroin SpaceTech "SBRL" (Stratospheric Balloon Rocket Launcher)
+# Virtual Labs: Rockoon Simulator and Integrated ground control station 
 
-A browser-based, high-fidelity Virtual Labs (V-Labs) interactive simulation platform modeled after **Aeroin SpaceTech's proprietary SBRL platform** (Ultra-high-altitude zero-pressure balloon carrying a direct-to-orbit faceted pyramidal launch vehicle with a 36 km to 40 km release envelope).
+A browser-based, high-fidelity Virtual Labs (V-Labs) interactive simulation platform modeled for **Rockoon** (Ultra-high-altitude zero-pressure balloon carrying a direct-to-orbit faceted pyramidal launch vehicle with a 36 km to 40 km release envelope).
 
 ---
 
-## 🚀 Mission Highlights: Aeroin SpaceTech SBRL Refactor
+## 🚀 Mission Highlights: 
 
 ### 1. Faceted Pyramidal Airframe & Vehicle Geometry
 - **Pyramidal Direct-to-Orbit Geometry:** Faceted aerodynamic composite shell with sharp planar compression ramps and a supersonic apex compression needle.
