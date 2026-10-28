@@ -1198,8 +1198,8 @@ export class SimulationKernel {
       'ping paused': reading.ping_paused,
       ping_paused_json: reading.ping_paused_json,
       server_target: {
-        server_ip: '172.16.59.95',
-        port: 65432,
+        server_ip: '10.110.76.5',
+        port: 65431,
         ping_interval_seconds: 0.5,
       },
       status: statusLabel,

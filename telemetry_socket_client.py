@@ -4,8 +4,8 @@ import struct
 import time
 import urllib.request
 
-SERVER_IP = "172.16.59.95"  # Set to the actual LAN IP of the server machine
-PORT = 65432
+SERVER_IP = "10.110.76.5"  # Set to the actual LAN IP of the server machine
+PORT = 65431
 PING_INTERVAL_SECONDS = 0.5  # Ping every 0.5 seconds without interruption
 SIMULATOR_API_URL = "http://localhost:5173/api/tcp-ping"
 

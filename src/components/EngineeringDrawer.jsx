@@ -70,8 +70,8 @@ export function EngineeringDrawer({
       pause_resume_events: kernel.pauseResumeEvents || [],
     },
     tcp_socket_stream: {
-      server_ip: '172.16.59.95',
-      port: 65432,
+      server_ip: '10.110.76.5',
+      port: 65431,
       ping_interval_seconds: 0.5,
       is_pinging: isPinging,
       ping_paused: pingPausedVal,
@@ -286,7 +286,7 @@ export function EngineeringDrawer({
                             : 'bg-rose-500'
                         }`}
                       />
-                      TCP SOCKET: 172.16.59.95:65432
+                      TCP SOCKET: 10.110.76.5:65431
                     </span>
                     <span
                       className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${

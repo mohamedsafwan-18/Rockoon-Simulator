@@ -132,8 +132,8 @@ export function FlightControlBar({
             if (onTogglePing) onTogglePing();
             showFeedback(
               isPinging
-                ? 'TCP SOCKET PING STOPPED (172.16.59.95:65432)'
-                : 'TCP SOCKET PING STARTED: Streaming JSON every 0.5s to 172.16.59.95:65432',
+                ? 'TCP SOCKET PING STOPPED (10.110.76.5:65431)'
+                : 'TCP SOCKET PING STARTED: Streaming JSON every 0.5s to 10.110.76.5:65431',
               isPinging
             );
           }}
@@ -145,8 +145,8 @@ export function FlightControlBar({
           }`}
           title={
             isPinging
-              ? 'Stop Ping (172.16.59.95:65432)'
-              : 'Ping Stopped — Click to Start Ping (172.16.59.95:65432)'
+              ? 'Stop Ping (10.110.76.5:65431)'
+              : 'Ping Stopped — Click to Start Ping (10.110.76.5:65431)'
           }
         >
           <WifiOff className="w-4 h-4" />
@@ -165,7 +165,7 @@ export function FlightControlBar({
               ? 'bg-amber-500/30 text-amber-200 border-amber-400 animate-pulse shadow-md'
               : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border-amber-500/40'
           }`}
-          title="Keeps pinging 172.16.59.95:65432 while slightly deviating telemetry data as predicted for 10s (ping_paused = 1)"
+          title="Keeps pinging 10.110.76.5:65431 while slightly deviating telemetry data as predicted for 10s (ping_paused = 1)"
         >
           <WifiOff className="w-3.5 h-3.5" />
           <span>

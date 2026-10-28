@@ -5,8 +5,8 @@ import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const SERVER_IP = '172.16.59.95';
-const PORT = 65432;
+const SERVER_IP = '10.110.76.5';
+const PORT = 65431;
 const PING_INTERVAL_MS = 500; // 0.5 seconds constant ping
 
 let latestPingPausedJson = {

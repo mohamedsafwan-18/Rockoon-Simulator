@@ -14,8 +14,8 @@ export function App() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [activeDrawerTab, setActiveDrawerTab] = useState(DRAWER_TABS.INSTRUMENTS);
   const [tcpStatus, setTcpStatus] = useState({
-    serverIp: '172.16.59.95',
-    port: 65432,
+    serverIp: '10.110.76.5',
+    port: 65431,
     intervalMs: 500,
     isPinging: true,
     totalPingsSent: 0,
